@@ -208,10 +208,13 @@
             <button onclick="playAudio()">▶️ Play</button>
             <button onclick="pauseAudio()">⏸️ Pause</button>
             <button onclick="stopAudio()">⏹️ Stop</button>
+            <button onclick="toggleRecording()" id="recordBtn">🎙️ 録音開始</button>
             <button onclick="zoomIn()">🔍+ Zoom In</button>
             <button onclick="zoomOut()">🔍- Zoom Out</button>
             <button onclick="resetView()">🔄 Reset View</button>
             <button onclick="exportImage()">💾 Export Image</button>
+            <button onclick="startFileRecognition()" id="speechBtn">📝 ファイル音声認識</button>
+            <button onclick="clearLabels()">🗑️ ラベルクリア</button>
         </div>
 
         <div class="main-content">
@@ -258,9 +261,31 @@
                     <label>Color Map</label>
                     <select id="colorMap">
                         <option value="grayscale">Grayscale</option>
-                        <option value="hot">Hot (Blue to Red)</option>
+                        <option value="hot" selected>Hot (Blue to Red)</option>
                         <option value="viridis">Viridis</option>
                         <option value="jet">Jet</option>
+                    </select>
+                </div>
+
+                <h3>Speech Recognition</h3>
+                <div class="control-group">
+                    <label>Recognition Language</label>
+                    <select id="recognitionLanguage">
+                        <option value="ja-JP">日本語 (Japanese)</option>
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="zh-CN">中文 (Mandarin)</option>
+                        <option value="ko-KR">한국어 (Korean)</option>
+                        <option value="es-ES">Español (Spanish)</option>
+                        <option value="fr-FR">Français (French)</option>
+                        <option value="de-DE">Deutsch (German)</option>
+                        <option value="it-IT">Italiano (Italian)</option>
+                        <option value="pt-BR">Português (Brazilian)</option>
+                        <option value="ru-RU">Русский (Russian)</option>
+                        <option value="ar-SA">العربية (Arabic)</option>
+                        <option value="hi-IN">हिन्दी (Hindi)</option>
+                        <option value="th-TH">ไทย (Thai)</option>
+                        <option value="vi-VN">Tiếng Việt (Vietnamese)</option>
                     </select>
                 </div>
 
@@ -286,13 +311,13 @@
 
             <div class="canvas-container">
                 <div class="analysis-panel">
-                    <h4>📊 Waveform & Intensity</h4>
-                    <canvas id="waveformCanvas" height="150"></canvas>
+                    <h4>🌈 Spectrogram & Formants</h4>
+                    <canvas id="spectrogramCanvas" height="400"></canvas>
                 </div>
 
                 <div class="analysis-panel">
-                    <h4>🌈 Spectrogram & Formants</h4>
-                    <canvas id="spectrogramCanvas" height="400"></canvas>
+                    <h4>📊 Waveform & Intensity</h4>
+                    <canvas id="waveformCanvas" height="150"></canvas>
                 </div>
 
                 <div class="analysis-panel">
@@ -326,6 +351,20 @@
         let isPlaying = false;
         let zoomLevel = 1;
         let panOffset = 0;
+
+        // Speech recognition variables
+        let recognition = null;
+        let isRecognizing = false;
+        let speechLabels = [];
+        let recognitionStartTime = 0;
+        let playbackStartTime = 0;
+
+        // Recording variables
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let recordingStartTime = 0;
+        let recordingStream = null;
 
         const waveformCanvas = document.getElementById('waveformCanvas');
         const spectrogramCanvas = document.getElementById('spectrogramCanvas');
@@ -378,10 +417,14 @@
 
             if (document.getElementById('showWaveform').checked) {
                 drawWaveform();
+                // Draw recording indicator on waveform
+                drawRecordingIndicator(waveformCtx, waveformCanvas.width, waveformCanvas.height);
             }
 
             if (document.getElementById('showSpectrogram').checked) {
                 await drawSpectrogram();
+                // Draw speech labels on spectrogram canvas
+                drawSpeechLabels(spectrogramCtx, spectrogramCanvas.width, spectrogramCanvas.height);
             }
 
             if (document.getElementById('showPitch').checked) {
@@ -1147,7 +1190,396 @@
             drawGrid(waveformCtx, waveformCanvas.width, waveformCanvas.height);
             drawGrid(spectrogramCtx, spectrogramCanvas.width, spectrogramCanvas.height);
             drawGrid(pitchCtx, pitchCanvas.width, pitchCanvas.height);
+            initializeSpeechRecognition();
         });
+
+        // Web Speech API Functions
+        function initializeSpeechRecognition() {
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+
+                // Configure speech recognition
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = document.getElementById('recognitionLanguage').value;
+                recognition.maxAlternatives = 1;
+
+                recognition.onstart = function() {
+                    isRecognizing = true;
+                    recognitionStartTime = Date.now();
+                    document.getElementById('statusMessage').textContent = '音声認識中...';
+                };
+
+                recognition.onresult = function(event) {
+                    let finalTranscript = '';
+                    let interimTranscript = '';
+
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            finalTranscript += transcript;
+                        } else {
+                            interimTranscript += transcript;
+                        }
+                    }
+
+                    if (finalTranscript) {
+                        // Calculate timestamp based on recognition time
+                        const currentTime = (Date.now() - recognitionStartTime) / 1000;
+                        const timestamp = Math.min(currentTime, audioBuffer ? audioBuffer.duration : currentTime);
+                        addSpeechLabel(finalTranscript, timestamp);
+
+                        // Redraw canvases with labels
+                        if (audioBuffer) {
+                            analyzeAndDraw();
+                        }
+                    }
+
+                    // Display interim results in status bar
+                    if (interimTranscript) {
+                        document.getElementById('statusMessage').textContent = '認識中: ' + interimTranscript;
+                    }
+                };
+
+                recognition.onerror = function(event) {
+                    console.error('Speech recognition error:', event.error);
+                    document.getElementById('statusMessage').textContent = 'エラー: ' + event.error;
+                    stopFileRecognition();
+                };
+
+                recognition.onend = function() {
+                    isRecognizing = false;
+                    document.getElementById('speechBtn').textContent = '📝 ファイル音声認識';
+                    document.getElementById('speechBtn').style.background = '';
+                    document.getElementById('statusMessage').textContent = '認識完了';
+                };
+
+                document.getElementById('speechBtn').disabled = false;
+                document.getElementById('statusMessage').textContent = '音声認識準備完了';
+            } else {
+                console.warn('Speech Recognition API not supported');
+                document.getElementById('speechBtn').disabled = true;
+                document.getElementById('speechBtn').textContent = '📝 非対応';
+                document.getElementById('statusMessage').textContent = 'ブラウザが音声認識に対応していません';
+            }
+        }
+
+        function startFileRecognition() {
+            if (!recognition) {
+                alert('お使いのブラウザは音声認識に対応していません。ChromeまたはEdgeをお使いください。');
+                return;
+            }
+
+            if (!audioBuffer) {
+                alert('まず音声ファイルをアップロードしてください。');
+                return;
+            }
+
+            if (isRecognizing) {
+                stopFileRecognition();
+                return;
+            }
+
+            // Clear existing labels before starting
+            speechLabels = [];
+
+            // Update language
+            recognition.lang = document.getElementById('recognitionLanguage').value;
+
+            // Play audio and start recognition
+            playAudioForRecognition();
+
+            // Start recognition with a slight delay
+            setTimeout(() => {
+                recognition.start();
+                document.getElementById('speechBtn').textContent = '⏹️ 認識停止';
+                document.getElementById('speechBtn').style.background = '#e53e3e';
+            }, 500);
+        }
+
+        function playAudioForRecognition() {
+            if (!audioBuffer || isPlaying) return;
+
+            initAudioContext();
+
+            // Create audio source
+            audioSource = audioContext.createBufferSource();
+            audioSource.buffer = audioBuffer;
+
+            // Connect to speakers (for recognition to hear)
+            audioSource.connect(audioContext.destination);
+
+            // Start playback
+            audioSource.start(0);
+            isPlaying = true;
+            playbackStartTime = Date.now();
+            recognitionStartTime = Date.now();
+
+            audioSource.onended = () => {
+                isPlaying = false;
+                if (isRecognizing) {
+                    stopFileRecognition();
+                }
+            };
+
+            document.getElementById('statusMessage').textContent = 'ファイル再生中 & 認識中...';
+        }
+
+        function stopFileRecognition() {
+            if (recognition && isRecognizing) {
+                recognition.stop();
+            }
+            if (audioSource && isPlaying) {
+                audioSource.stop();
+                isPlaying = false;
+            }
+            document.getElementById('speechBtn').textContent = '📝 ファイル音声認識';
+            document.getElementById('speechBtn').style.background = '';
+        }
+
+        function addSpeechLabel(text, timestamp) {
+            // Add new label to array
+            speechLabels.push({
+                text: text,
+                timestamp: timestamp,
+                x: Math.random() * 0.8 + 0.1, // Random x position (10% to 90% of width)
+                y: Math.random() * 0.7 + 0.1, // Random y position (10% to 80% of height)
+                id: Date.now()
+            });
+
+            // Keep only last 10 labels
+            if (speechLabels.length > 10) {
+                speechLabels = speechLabels.slice(-10);
+            }
+        }
+
+        function clearLabels() {
+            speechLabels = [];
+            if (audioBuffer) {
+                analyzeAndDraw();
+            }
+            document.getElementById('statusMessage').textContent = 'ラベルをクリアしました';
+        }
+
+        function drawSpeechLabels(ctx, width, height) {
+            if (speechLabels.length === 0) return;
+
+            speechLabels.forEach((label, index) => {
+                const x = label.x * width;
+                const y = label.y * height;
+
+                // Draw background rectangle
+                ctx.save();
+                ctx.font = 'bold 14px "Noto Sans JP", sans-serif';
+                const textMetrics = ctx.measureText(label.text);
+                const textWidth = textMetrics.width;
+                const padding = 8;
+
+                // Semi-transparent background
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.strokeStyle = 'rgba(102, 126, 234, 0.8)';
+                ctx.lineWidth = 2;
+
+                // Draw rounded rectangle
+                const rectX = x - textWidth / 2 - padding;
+                const rectY = y - 10 - padding;
+                const rectWidth = textWidth + padding * 2;
+                const rectHeight = 20 + padding * 2;
+                const radius = 5;
+
+                ctx.beginPath();
+                ctx.moveTo(rectX + radius, rectY);
+                ctx.lineTo(rectX + rectWidth - radius, rectY);
+                ctx.quadraticCurveTo(rectX + rectWidth, rectY, rectX + rectWidth, rectY + radius);
+                ctx.lineTo(rectX + rectWidth, rectY + rectHeight - radius);
+                ctx.quadraticCurveTo(rectX + rectWidth, rectY + rectHeight, rectX + rectWidth - radius, rectY + rectHeight);
+                ctx.lineTo(rectX + radius, rectY + rectHeight);
+                ctx.quadraticCurveTo(rectX, rectY + rectHeight, rectX, rectY + rectHeight - radius);
+                ctx.lineTo(rectX, rectY + radius);
+                ctx.quadraticCurveTo(rectX, rectY, rectX + radius, rectY);
+                ctx.closePath();
+
+                ctx.fill();
+                ctx.stroke();
+
+                // Draw text
+                ctx.fillStyle = '#2d3748';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(label.text, x, y);
+
+                // Draw connection line to position
+                if (label.timestamp && audioBuffer) {
+                    const timeX = (label.timestamp / audioBuffer.duration) * width;
+                    ctx.strokeStyle = 'rgba(102, 126, 234, 0.4)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + rectHeight / 2);
+                    ctx.lineTo(timeX, height - 10);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // Draw timestamp marker
+                    ctx.fillStyle = 'rgba(102, 126, 234, 0.8)';
+                    ctx.beginPath();
+                    ctx.arc(timeX, height - 10, 4, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+
+                ctx.restore();
+            });
+        }
+
+        // Recording Functions
+        async function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                await startRecording();
+            }
+        }
+
+        async function startRecording() {
+            try {
+                // Request microphone access
+                recordingStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                // Create MediaRecorder
+                const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
+                mediaRecorder = new MediaRecorder(recordingStream, {
+                    mimeType: mimeType,
+                    audioBitsPerSecond: 128000
+                });
+
+                recordedChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    // Stop speech recognition
+                    if (recognition && isRecognizing) {
+                        recognition.stop();
+                    }
+
+                    // Create blob from recorded chunks
+                    const blob = new Blob(recordedChunks, { type: mimeType });
+
+                    // Convert blob to AudioBuffer
+                    const arrayBuffer = await blob.arrayBuffer();
+                    initAudioContext();
+
+                    try {
+                        audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                        // Update UI
+                        document.getElementById('duration').textContent = audioBuffer.duration.toFixed(3);
+                        document.getElementById('sampleRate').textContent = audioBuffer.sampleRate;
+                        document.getElementById('statusMessage').textContent = '録音完了 - 分析中...';
+
+                        // Analyze and draw
+                        await analyzeAndDraw();
+
+                        document.getElementById('statusMessage').textContent = '録音と分析が完了しました';
+                    } catch (error) {
+                        console.error('Error processing recorded audio:', error);
+                        document.getElementById('statusMessage').textContent = 'エラー: 録音の処理に失敗しました';
+                    }
+                };
+
+                // Start recording
+                mediaRecorder.start(100); // Collect data every 100ms
+                isRecording = true;
+                recordingStartTime = Date.now();
+
+                // Update UI
+                document.getElementById('recordBtn').textContent = '⏹️ 録音停止';
+                document.getElementById('recordBtn').style.background = '#e53e3e';
+                document.getElementById('statusMessage').textContent = '録音中...';
+
+                // Start real-time speech recognition if available
+                if (recognition) {
+                    recognition.lang = document.getElementById('recognitionLanguage').value;
+                    recognitionStartTime = Date.now();
+                    setTimeout(() => {
+                        recognition.start();
+                    }, 100);
+                }
+
+                // Show recording time
+                updateRecordingTime();
+
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                alert('マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+
+                // Stop all tracks
+                if (recordingStream) {
+                    recordingStream.getTracks().forEach(track => track.stop());
+                    recordingStream = null;
+                }
+
+                // Update UI
+                document.getElementById('recordBtn').textContent = '🎙️ 録音開始';
+                document.getElementById('recordBtn').style.background = '';
+                document.getElementById('statusMessage').textContent = '録音を処理中...';
+            }
+        }
+
+        function updateRecordingTime() {
+            if (isRecording) {
+                const elapsed = ((Date.now() - recordingStartTime) / 1000).toFixed(1);
+                document.getElementById('statusMessage').textContent = `録音中... ${elapsed}秒`;
+
+                // Redraw to show pulsing indicator
+                if (document.getElementById('showWaveform').checked && waveformCanvas) {
+                    drawRecordingIndicator(waveformCtx, waveformCanvas.width, waveformCanvas.height);
+                }
+
+                requestAnimationFrame(updateRecordingTime);
+            }
+        }
+
+        // Add visual recording indicator
+        function drawRecordingIndicator(ctx, width, height) {
+            if (isRecording) {
+                // Draw pulsing red circle
+                const time = Date.now() / 1000;
+                const pulse = Math.sin(time * 4) * 0.3 + 0.7;
+
+                ctx.save();
+                ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
+                ctx.beginPath();
+                ctx.arc(width - 30, 30, 10, 0, 2 * Math.PI);
+                ctx.fill();
+
+                ctx.fillStyle = '#ef4444';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'right';
+                ctx.fillText('REC', width - 45, 35);
+                ctx.restore();
+            }
+        }
     </script>
 </body>
 </html>
