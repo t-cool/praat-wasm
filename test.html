@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Praat WebAssembly Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .output {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Praat WebAssembly Test</h1>
+    <div>
+        <button onclick="testAdd()">Test Add Function</button>
+        <button onclick="testHello()">Test Hello Function</button>
+        <button onclick="testVersion()">Get Version</button>
+    </div>
+    <div id="output" class="output">Output will appear here...</div>
+
+    <script src="praat_test.js"></script>
+    <script>
+        let Module;
+
+        async function init() {
+            Module = await PraatTestModule();
+            appendOutput("WebAssembly module loaded successfully!");
+        }
+
+        function appendOutput(text) {
+            const output = document.getElementById('output');
+            output.innerHTML += text + '<br>';
+        }
+
+        function testAdd() {
+            if (!Module) {
+                appendOutput("Module not loaded yet!");
+                return;
+            }
+            const result = Module.ccall('add', 'number', ['number', 'number'], [5, 3]);
+            appendOutput(`add(5, 3) = ${result}`);
+        }
+
+        function testHello() {
+            if (!Module) {
+                appendOutput("Module not loaded yet!");
+                return;
+            }
+            Module.ccall('say_hello', null, [], []);
+        }
+
+        function testVersion() {
+            if (!Module) {
+                appendOutput("Module not loaded yet!");
+                return;
+            }
+            const version = Module.ccall('get_version', 'string', [], []);
+            appendOutput(`Version: ${version}`);
+        }
+
+        // Override Module print function to display output
+        PraatTestModule = PraatTestModule || {};
+        PraatTestModule.print = function(text) {
+            appendOutput(text);
+        };
+
+        // Initialize when page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>

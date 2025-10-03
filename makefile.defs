@@ -1,0 +1,65 @@
+# makefile.defs.wasm
+# Makefile definitions for WebAssembly build using Emscripten
+# Based on Praat makefile system
+
+# Compiler settings
+CC = emcc
+CXX = em++
+LINK = em++
+
+# WebAssembly-specific linker flags (used only at link time)
+LDFLAGS = \
+	-s WASM=1 \
+	-s ALLOW_MEMORY_GROWTH=1 \
+	-s TOTAL_MEMORY=256MB \
+	-s STACK_SIZE=5MB \
+	-s MODULARIZE=1 \
+	-s EXPORT_NAME='PraatModule' \
+	-s EXPORTED_RUNTIME_METHODS='["ccall","cwrap","FS","IDBFS"]' \
+	-s FORCE_FILESYSTEM=1 \
+	-s DISABLE_EXCEPTION_CATCHING=0 \
+	-s USE_SDL=0 \
+	-s NO_EXIT_RUNTIME=1 \
+	-s SINGLE_FILE=0 \
+	-s ERROR_ON_UNDEFINED_SYMBOLS=0 \
+	-lidbfs.js
+
+# C/C++ flags
+CFLAGS = -std=gnu99 \
+	-O2 \
+	-DPRAAT_LIB \
+	-DUNIX \
+	-D_FILE_OFFSET_BITS=64 \
+	-D_GNU_SOURCE \
+	-D_POSIX_C_SOURCE=200809L \
+	-Dlinux \
+	-DNDEBUG \
+	-DWEB_ASSEMBLY
+
+CXXFLAGS = -std=c++17 \
+	-O2 \
+	-DPRAAT_LIB \
+	-DUNIX \
+	-D_FILE_OFFSET_BITS=64 \
+	-D_GNU_SOURCE \
+	-D_POSIX_C_SOURCE=200809L \
+	-Dlinux \
+	-DNDEBUG \
+	-DWEB_ASSEMBLY \
+	-fexceptions
+
+# Include directories
+CFLAGS += -I. -I../sys -I../melder -I../dwsys -I../kar -I../fon -I../stat
+CXXFLAGS += -I. -I../sys -I../melder -I../dwsys -I../kar -I../fon -I../stat
+
+# Output settings
+EXECUTABLE = praat.js
+MAIN_ICON =
+
+# Libraries (simplified for WebAssembly)
+LIBS = -lm $(LDFLAGS)
+
+# Disable audio and GUI libraries that won't work in browser
+# Use Web Audio API and HTML5 Canvas instead through JavaScript bindings
+CFLAGS += -DNO_AUDIO -DNO_GUI -DNO_GRAPHICS
+CXXFLAGS += -DNO_AUDIO -DNO_GUI -DNO_GRAPHICS

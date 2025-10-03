@@ -1,0 +1,26 @@
+{
+  "name": "praat-wasm",
+  "version": "1.0.0",
+  "description": "Praat WebAssembly Web Application",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 server.py",
+    "build": "cd .. && ./build_wasm.sh",
+    "serve": "npx http-server -p 8000 --cors -c-1",
+    "dev": "npx live-server --port=8000 --cors"
+  },
+  "keywords": [
+    "praat",
+    "webassembly",
+    "wasm",
+    "phonetics",
+    "audio",
+    "speech"
+  ],
+  "author": "",
+  "license": "GPL-3.0",
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "live-server": "^1.2.2"
+  }
+}

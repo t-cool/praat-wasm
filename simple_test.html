@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Simple Praat WebAssembly Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        #output {
+            white-space: pre-wrap;
+            background: #2d2d30;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+            min-height: 200px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Simple Praat WASM Test</h1>
+    <button onclick="testPraat()">Test Praat Module</button>
+    <div id="output">Loading Praat Module...</div>
+
+    <script src="praat.js"></script>
+    <script>
+        const output = document.getElementById('output');
+
+        function log(message) {
+            output.textContent += '\n' + message;
+            console.log(message);
+        }
+
+        let Module = null;
+
+        // Wait for the script to load
+        window.addEventListener('load', async () => {
+            log('Page loaded. Checking for PraatModule...');
+
+            if (typeof PraatModule !== 'undefined') {
+                log('PraatModule found! Type: ' + typeof PraatModule);
+
+                try {
+                    log('Initializing PraatModule...');
+                    Module = await PraatModule({
+                        print: (text) => log('PRAAT: ' + text),
+                        printErr: (text) => log('ERROR: ' + text),
+                        onRuntimeInitialized: () => {
+                            log('✅ Runtime initialized!');
+                            log('Available methods: ' + Object.keys(Module).slice(0, 10).join(', ') + '...');
+                        }
+                    });
+
+                    log('✅ Module loaded successfully!');
+                } catch (error) {
+                    log('❌ Error loading module: ' + error.message);
+                    console.error(error);
+                }
+            } else {
+                log('❌ PraatModule is not defined');
+                log('Available globals: ' + Object.keys(window).filter(k => k.includes('raat')).join(', '));
+            }
+        });
+
+        function testPraat() {
+            if (!Module) {
+                log('Module not loaded yet');
+                return;
+            }
+
+            log('\nTesting Praat functions...');
+
+            try {
+                // Try to call main if available
+                if (Module._main) {
+                    log('Calling _main()...');
+                    Module._main();
+                }
+
+                // Check for FS
+                if (Module.FS) {
+                    log('File system available');
+                    log('Current directory: ' + Module.FS.cwd());
+                }
+            } catch (error) {
+                log('Error during test: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
