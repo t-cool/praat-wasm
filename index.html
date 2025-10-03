@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Praat - WASM</title>
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.9.0';
+        window.transformers = { pipeline, env };
+    </script>
     <style>
         * {
             margin: 0;
@@ -208,13 +212,13 @@
             <button onclick="playAudio()">▶️ Play</button>
             <button onclick="pauseAudio()">⏸️ Pause</button>
             <button onclick="stopAudio()">⏹️ Stop</button>
-            <button onclick="toggleRecording()" id="recordBtn">🎙️ 録音開始</button>
+            <button onclick="toggleRecording()" id="recordBtn">🎙️ Start Recording</button>
             <button onclick="zoomIn()">🔍+ Zoom In</button>
             <button onclick="zoomOut()">🔍- Zoom Out</button>
             <button onclick="resetView()">🔄 Reset View</button>
             <button onclick="exportImage()">💾 Export Image</button>
-            <button onclick="startFileRecognition()" id="speechBtn">📝 ファイル音声認識</button>
-            <button onclick="clearLabels()">🗑️ ラベルクリア</button>
+            <button onclick="startFileRecognition()" id="speechBtn">📝 File Speech Recognition</button>
+            <button onclick="clearLabels()">🗑️ Clear Labels</button>
         </div>
 
         <div class="main-content">
@@ -252,8 +256,8 @@
                 <div class="control-group">
                     <label>Spectrogram Type</label>
                     <select id="spectrogramType">
-                        <option value="wideband">Wideband (時間分解能重視)</option>
-                        <option value="narrowband">Narrowband (周波数分解能重視)</option>
+                        <option value="wideband">Wideband (Time Resolution Priority)</option>
+                        <option value="narrowband">Narrowband (Frequency Resolution Priority)</option>
                     </select>
                 </div>
 
@@ -271,21 +275,22 @@
                 <div class="control-group">
                     <label>Recognition Language</label>
                     <select id="recognitionLanguage">
-                        <option value="ja-JP">日本語 (Japanese)</option>
+                        <option value="auto" selected>🌐 Auto Detect (Whisper)</option>
+                        <option value="ja-JP">Japanese (日本語)</option>
                         <option value="en-US">English (US)</option>
                         <option value="en-GB">English (UK)</option>
-                        <option value="zh-CN">中文 (Mandarin)</option>
-                        <option value="ko-KR">한국어 (Korean)</option>
-                        <option value="es-ES">Español (Spanish)</option>
-                        <option value="fr-FR">Français (French)</option>
-                        <option value="de-DE">Deutsch (German)</option>
-                        <option value="it-IT">Italiano (Italian)</option>
-                        <option value="pt-BR">Português (Brazilian)</option>
-                        <option value="ru-RU">Русский (Russian)</option>
-                        <option value="ar-SA">العربية (Arabic)</option>
-                        <option value="hi-IN">हिन्दी (Hindi)</option>
-                        <option value="th-TH">ไทย (Thai)</option>
-                        <option value="vi-VN">Tiếng Việt (Vietnamese)</option>
+                        <option value="zh-CN">Chinese Mandarin (中文)</option>
+                        <option value="ko-KR">Korean (한국어)</option>
+                        <option value="es-ES">Spanish (Español)</option>
+                        <option value="fr-FR">French (Français)</option>
+                        <option value="de-DE">German (Deutsch)</option>
+                        <option value="it-IT">Italian (Italiano)</option>
+                        <option value="pt-BR">Brazilian Portuguese (Português)</option>
+                        <option value="ru-RU">Russian (Русский)</option>
+                        <option value="ar-SA">Arabic (العربية)</option>
+                        <option value="hi-IN">Hindi (हिन्दी)</option>
+                        <option value="th-TH">Thai (ไทย)</option>
+                        <option value="vi-VN">Vietnamese (Tiếng Việt)</option>
                     </select>
                 </div>
 
@@ -357,7 +362,12 @@
         let isRecognizing = false;
         let speechLabels = [];
         let recognitionStartTime = 0;
-        let playbackStartTime = 0;
+        let recognitionMode = null;
+        let lastAudioFile = null;
+        let whisperPipelinePromise = null;
+        let whisperAbortRequested = false;
+        let whisperTaskId = 0;
+        const WHISPER_MODEL_ID = 'Xenova/whisper-small';
 
         // Recording variables
         let mediaRecorder = null;
@@ -391,6 +401,7 @@
 
         async function loadAudioFile(file) {
             initAudioContext();
+            lastAudioFile = file;
             document.getElementById('loading').style.display = 'block';
             document.getElementById('statusMessage').textContent = 'Loading audio...';
 
@@ -1113,10 +1124,10 @@
 
             // Copy canvases
             let yOffset = 40;
-            tempCtx.drawImage(waveformCanvas, 0, yOffset);
-            yOffset += waveformCanvas.height + 10;
             tempCtx.drawImage(spectrogramCanvas, 0, yOffset);
             yOffset += spectrogramCanvas.height + 10;
+            tempCtx.drawImage(waveformCanvas, 0, yOffset);
+            yOffset += waveformCanvas.height + 10;
             tempCtx.drawImage(pitchCanvas, 0, yOffset);
 
             // Export
@@ -1195,6 +1206,8 @@
 
         // Web Speech API Functions
         function initializeSpeechRecognition() {
+            const speechBtn = document.getElementById('speechBtn');
+
             if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
                 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
                 recognition = new SpeechRecognition();
@@ -1208,7 +1221,7 @@
                 recognition.onstart = function() {
                     isRecognizing = true;
                     recognitionStartTime = Date.now();
-                    document.getElementById('statusMessage').textContent = '音声認識中...';
+                    document.getElementById('statusMessage').textContent = 'Speech recognition in progress...';
                 };
 
                 recognition.onresult = function(event) {
@@ -1238,41 +1251,35 @@
 
                     // Display interim results in status bar
                     if (interimTranscript) {
-                        document.getElementById('statusMessage').textContent = '認識中: ' + interimTranscript;
+                        document.getElementById('statusMessage').textContent = 'Recognizing: ' + interimTranscript;
                     }
                 };
 
                 recognition.onerror = function(event) {
                     console.error('Speech recognition error:', event.error);
-                    document.getElementById('statusMessage').textContent = 'エラー: ' + event.error;
+                    document.getElementById('statusMessage').textContent = 'Error: ' + event.error;
                     stopFileRecognition();
                 };
 
                 recognition.onend = function() {
                     isRecognizing = false;
-                    document.getElementById('speechBtn').textContent = '📝 ファイル音声認識';
+                    document.getElementById('speechBtn').textContent = '📝 File Speech Recognition';
                     document.getElementById('speechBtn').style.background = '';
-                    document.getElementById('statusMessage').textContent = '認識完了';
+                    document.getElementById('statusMessage').textContent = 'Recognition completed';
                 };
-
-                document.getElementById('speechBtn').disabled = false;
-                document.getElementById('statusMessage').textContent = '音声認識準備完了';
+                speechBtn.disabled = false;
+                document.getElementById('statusMessage').textContent = 'Speech recognition ready';
             } else {
                 console.warn('Speech Recognition API not supported');
-                document.getElementById('speechBtn').disabled = true;
-                document.getElementById('speechBtn').textContent = '📝 非対応';
-                document.getElementById('statusMessage').textContent = 'ブラウザが音声認識に対応していません';
+                recognition = null;
+                speechBtn.disabled = false;
+                document.getElementById('statusMessage').textContent = 'File speech recognition via Whisper is available';
             }
         }
 
-        function startFileRecognition() {
-            if (!recognition) {
-                alert('お使いのブラウザは音声認識に対応していません。ChromeまたはEdgeをお使いください。');
-                return;
-            }
-
+        async function startFileRecognition() {
             if (!audioBuffer) {
-                alert('まず音声ファイルをアップロードしてください。');
+                alert('Please upload an audio file first.');
                 return;
             }
 
@@ -1281,52 +1288,264 @@
                 return;
             }
 
-            // Clear existing labels before starting
+            if (!await getAudioFileForWhisper()) {
+                alert('Failed to prepare audio file. Please try another file.');
+                return;
+            }
+
             speechLabels = [];
+            const speechBtn = document.getElementById('speechBtn');
 
-            // Update language
-            recognition.lang = document.getElementById('recognitionLanguage').value;
+            recognitionMode = 'whisper';
+            isRecognizing = true;
+            whisperAbortRequested = false;
+            const currentTaskId = ++whisperTaskId;
 
-            // Play audio and start recognition
-            playAudioForRecognition();
+            speechBtn.textContent = '⏹️ Stop Recognition';
+            speechBtn.style.background = '#e53e3e';
+            document.getElementById('statusMessage').textContent = 'Initializing Whisper (WASM)...';
 
-            // Start recognition with a slight delay
-            setTimeout(() => {
-                recognition.start();
-                document.getElementById('speechBtn').textContent = '⏹️ 認識停止';
-                document.getElementById('speechBtn').style.background = '#e53e3e';
-            }, 500);
+            try {
+                const transcriber = await getWhisperPipeline();
+                if (!isActiveWhisperTask(currentTaskId)) {
+                    return;
+                }
+
+                const whisperInput = await prepareWhisperInput(audioBuffer);
+                if (!isActiveWhisperTask(currentTaskId)) {
+                    return;
+                }
+
+                document.getElementById('statusMessage').textContent = 'Recognizing with Whisper (WASM)...';
+
+                const languageCode = mapLanguageCode(document.getElementById('recognitionLanguage').value);
+                const options = {
+                    return_timestamps: true,
+                    chunk_length_s: 30,
+                    stride_length_s: 5,
+                    task: 'transcribe',
+                    sampling_rate: whisperInput.sampleRate
+                };
+                if (languageCode) {
+                    options.language = languageCode;
+                }
+
+                const result = await transcriber(whisperInput.audio, options);
+
+                if (!isActiveWhisperTask(currentTaskId)) {
+                    return;
+                }
+
+                let labelsAdded = false;
+
+                if (result && Array.isArray(result.chunks) && result.chunks.length > 0) {
+                    result.chunks.forEach(chunk => {
+                        if (chunk && chunk.text) {
+                            const timestamps = chunk.timestamp || chunk.timestamps;
+                            let start = 0;
+                            if (Array.isArray(timestamps)) {
+                                start = parseFloat(timestamps[0]) || 0;
+                            } else if (timestamps && typeof timestamps.start === 'number') {
+                                start = timestamps.start;
+                            }
+                            addSpeechLabel(chunk.text.trim(), start);
+                            labelsAdded = true;
+                        }
+                    });
+                } else if (result && typeof result.text === 'string' && result.text.trim()) {
+                    addSpeechLabel(result.text.trim(), 0);
+                    labelsAdded = true;
+                }
+
+                if (audioBuffer && labelsAdded) {
+                    analyzeAndDraw();
+                }
+
+                console.log('Whisper recognition result (raw):', result);
+
+                document.getElementById('statusMessage').textContent = labelsAdded ? 'Whisper recognition completed' : 'Whisper recognition completed (no text)';
+            } catch (error) {
+                if (whisperAbortRequested) {
+                    document.getElementById('statusMessage').textContent = 'Whisper recognition interrupted';
+                } else {
+                    console.error('Whisper WASM transcription failed:', error);
+                    document.getElementById('statusMessage').textContent = 'Whisper recognition error: ' + (error && error.message ? error.message : error);
+                }
+            } finally {
+                if (currentTaskId === whisperTaskId) {
+                    recognitionMode = null;
+                    isRecognizing = false;
+                    speechBtn.textContent = '📝 File Speech Recognition';
+                    speechBtn.style.background = '';
+                }
+            }
         }
 
-        function playAudioForRecognition() {
-            if (!audioBuffer || isPlaying) return;
+        async function getAudioFileForWhisper() {
+            if (lastAudioFile) {
+                return lastAudioFile;
+            }
 
-            initAudioContext();
+            if (!audioBuffer) {
+                return null;
+            }
 
-            // Create audio source
-            audioSource = audioContext.createBufferSource();
-            audioSource.buffer = audioBuffer;
+            try {
+                const wavBuffer = audioBufferToWav(audioBuffer);
+                lastAudioFile = new File([wavBuffer], 'analysis.wav', { type: 'audio/wav' });
+                return lastAudioFile;
+            } catch (error) {
+                console.error('Failed to convert AudioBuffer to WAV:', error);
+                return null;
+            }
+        }
 
-            // Connect to speakers (for recognition to hear)
-            audioSource.connect(audioContext.destination);
+        async function getWhisperPipeline() {
+            if (!window.transformers || !window.transformers.pipeline) {
+                throw new Error('transformers.js is not loaded');
+            }
 
-            // Start playback
-            audioSource.start(0);
-            isPlaying = true;
-            playbackStartTime = Date.now();
-            recognitionStartTime = Date.now();
-
-            audioSource.onended = () => {
-                isPlaying = false;
-                if (isRecognizing) {
-                    stopFileRecognition();
+            if (!whisperPipelinePromise) {
+                const { pipeline, env } = window.transformers;
+                if (env.backends && env.backends.onnx && env.backends.onnx.wasm) {
+                    const cores = navigator.hardwareConcurrency || 2;
+                    env.backends.onnx.wasm.numThreads = Math.min(4, Math.max(1, cores - 1));
                 }
-            };
+                whisperPipelinePromise = pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
+                    quantized: true
+                });
+            }
 
-            document.getElementById('statusMessage').textContent = 'ファイル再生中 & 認識中...';
+            return whisperPipelinePromise;
+        }
+
+        async function prepareWhisperInput(buffer) {
+            if (!buffer) {
+                throw new Error('audio buffer is not available for Whisper');
+            }
+
+            const targetSampleRate = 16000;
+            const monoData = mixAudioBufferToMono(buffer);
+            const audio = buffer.sampleRate === targetSampleRate
+                ? monoData
+                : resampleFloat32Array(monoData, buffer.sampleRate, targetSampleRate);
+
+            return {
+                audio,
+                sampleRate: targetSampleRate
+            };
+        }
+
+        function mixAudioBufferToMono(buffer) {
+            const channelCount = buffer.numberOfChannels;
+            const length = buffer.length;
+
+            if (channelCount === 1) {
+                return new Float32Array(buffer.getChannelData(0));
+            }
+
+            const output = new Float32Array(length);
+            for (let channel = 0; channel < channelCount; channel++) {
+                const channelData = buffer.getChannelData(channel);
+                for (let i = 0; i < length; i++) {
+                    output[i] += channelData[i] / channelCount;
+                }
+            }
+            return output;
+        }
+
+        function resampleFloat32Array(data, sourceRate, targetRate) {
+            if (sourceRate === targetRate) {
+                return new Float32Array(data);
+            }
+
+            const ratio = sourceRate / targetRate;
+            const newLength = Math.max(1, Math.round(data.length / ratio));
+            const output = new Float32Array(newLength);
+
+            for (let i = 0; i < newLength; i++) {
+                const sourceIndex = i * ratio;
+                const indexLower = Math.floor(sourceIndex);
+                const indexUpper = Math.min(indexLower + 1, data.length - 1);
+                const weightUpper = sourceIndex - indexLower;
+                const weightLower = 1 - weightUpper;
+                output[i] = data[indexLower] * weightLower + data[indexUpper] * weightUpper;
+            }
+
+            return output;
+        }
+
+        function mapLanguageCode(code) {
+            if (!code) return undefined;
+            const lowered = code.toLowerCase();
+            if (lowered === 'auto') return undefined;
+            return lowered.split('-')[0];
+        }
+
+        function isActiveWhisperTask(taskId) {
+            return !whisperAbortRequested && recognitionMode === 'whisper' && taskId === whisperTaskId;
+        }
+
+        function audioBufferToWav(buffer) {
+            const numOfChan = buffer.numberOfChannels;
+            const sampleRate = buffer.sampleRate;
+            const samples = buffer.length;
+            const bytesPerSample = 2;
+            const blockAlign = numOfChan * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+            const dataSize = samples * blockAlign;
+            const bufferLength = 44 + dataSize;
+            const arrayBuffer = new ArrayBuffer(bufferLength);
+            const view = new DataView(arrayBuffer);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numOfChan, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bytesPerSample * 8, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            let offset = 44;
+            for (let sampleIndex = 0; sampleIndex < samples; sampleIndex++) {
+                for (let channel = 0; channel < numOfChan; channel++) {
+                    const sample = buffer.getChannelData(channel)[sampleIndex];
+                    const clamped = Math.max(-1, Math.min(1, sample));
+                    const intSample = clamped < 0 ? clamped * 0x8000 : clamped * 0x7FFF;
+                    view.setInt16(offset, intSample, true);
+                    offset += 2;
+                }
+            }
+
+            return arrayBuffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
         }
 
         function stopFileRecognition() {
+            const speechBtn = document.getElementById('speechBtn');
+
+            if (recognitionMode === 'whisper') {
+                whisperAbortRequested = true;
+                recognitionMode = null;
+                isRecognizing = false;
+                whisperTaskId++;
+                document.getElementById('statusMessage').textContent = 'Whisper recognition interrupted';
+                speechBtn.textContent = '📝 ファイル音声認識';
+                speechBtn.style.background = '';
+                return;
+            }
+
             if (recognition && isRecognizing) {
                 recognition.stop();
             }
@@ -1334,21 +1553,24 @@
                 audioSource.stop();
                 isPlaying = false;
             }
-            document.getElementById('speechBtn').textContent = '📝 ファイル音声認識';
-            document.getElementById('speechBtn').style.background = '';
+
+            speechBtn.textContent = '📝 ファイル音声認識';
+            speechBtn.style.background = '';
         }
 
         function addSpeechLabel(text, timestamp) {
-            // Add new label to array
+            const duration = audioBuffer ? audioBuffer.duration : null;
+            const normalizedTime = duration ? Math.min(Math.max(timestamp / duration, 0), 1) : 0;
+            const row = speechLabels.length % 3;
+
             speechLabels.push({
                 text: text,
                 timestamp: timestamp,
-                x: Math.random() * 0.8 + 0.1, // Random x position (10% to 90% of width)
-                y: Math.random() * 0.7 + 0.1, // Random y position (10% to 80% of height)
+                x: normalizedTime,
+                row: row,
                 id: Date.now()
             });
 
-            // Keep only last 10 labels
             if (speechLabels.length > 10) {
                 speechLabels = speechLabels.slice(-10);
             }
@@ -1359,34 +1581,60 @@
             if (audioBuffer) {
                 analyzeAndDraw();
             }
-            document.getElementById('statusMessage').textContent = 'ラベルをクリアしました';
+            document.getElementById('statusMessage').textContent = 'Labels cleared';
         }
 
         function drawSpeechLabels(ctx, width, height) {
             if (speechLabels.length === 0) return;
 
-            speechLabels.forEach((label, index) => {
-                const x = label.x * width;
-                const y = label.y * height;
+            const waveHeight = 20;
+            const laneHeight = 90;
+            const laneTop = height - laneHeight;
+            const maxRectX = width - 20;
+            const rowSpacing = 28;
 
-                // Draw background rectangle
+            const laneCanvas = document.createElement('canvas');
+            laneCanvas.width = width;
+            laneCanvas.height = laneHeight;
+            const laneCtx = laneCanvas.getContext('2d');
+
+            laneCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            laneCtx.fillRect(0, 0, width, laneHeight);
+
+            const gradient = laneCtx.createLinearGradient(0, 0, width, 0);
+            gradient.addColorStop(0, 'rgba(102, 126, 234, 0.25)');
+            gradient.addColorStop(1, 'rgba(58, 169, 255, 0.25)');
+            laneCtx.fillStyle = gradient;
+            laneCtx.beginPath();
+            laneCtx.moveTo(0, laneHeight);
+            laneCtx.quadraticCurveTo(width * 0.25, laneHeight - waveHeight, width * 0.5, laneHeight - waveHeight * 0.6);
+            laneCtx.quadraticCurveTo(width * 0.75, laneHeight - waveHeight * 0.2, width, laneHeight - waveHeight);
+            laneCtx.lineTo(width, laneHeight);
+            laneCtx.closePath();
+            laneCtx.fill();
+
+            ctx.drawImage(laneCanvas, 0, laneTop);
+
+            speechLabels.forEach((label) => {
+                const timeX = audioBuffer ? (label.timestamp / audioBuffer.duration) * width : label.x * width;
+                const labelX = Math.max(40, Math.min(timeX, maxRectX));
+                const labelY = laneTop + 18 + (label.row % 3) * rowSpacing;
+
                 ctx.save();
                 ctx.font = 'bold 14px "Noto Sans JP", sans-serif';
                 const textMetrics = ctx.measureText(label.text);
                 const textWidth = textMetrics.width;
                 const padding = 8;
 
-                // Semi-transparent background
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
                 ctx.strokeStyle = 'rgba(102, 126, 234, 0.8)';
                 ctx.lineWidth = 2;
 
-                // Draw rounded rectangle
-                const rectX = x - textWidth / 2 - padding;
-                const rectY = y - 10 - padding;
                 const rectWidth = textWidth + padding * 2;
-                const rectHeight = 20 + padding * 2;
-                const radius = 5;
+                const rectHeight = 24 + padding * 2;
+                const rectX = Math.max(20, Math.min(labelX - rectWidth / 2, width - rectWidth - 20));
+                const rectY = labelY - rectHeight / 2;
+                const radius = 6;
 
                 ctx.beginPath();
                 ctx.moveTo(rectX + radius, rectY);
@@ -1403,28 +1651,24 @@
                 ctx.fill();
                 ctx.stroke();
 
-                // Draw text
-                ctx.fillStyle = '#2d3748';
+                ctx.fillStyle = '#1a202c';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(label.text, x, y);
+                ctx.fillText(label.text, rectX + rectWidth / 2, labelY);
 
-                // Draw connection line to position
-                if (label.timestamp && audioBuffer) {
-                    const timeX = (label.timestamp / audioBuffer.duration) * width;
-                    ctx.strokeStyle = 'rgba(102, 126, 234, 0.4)';
+                if (audioBuffer && audioBuffer.duration > 0) {
+                    ctx.strokeStyle = 'rgba(102, 126, 234, 0.45)';
                     ctx.lineWidth = 1;
-                    ctx.setLineDash([5, 5]);
+                    ctx.setLineDash([4, 4]);
                     ctx.beginPath();
-                    ctx.moveTo(x, y + rectHeight / 2);
-                    ctx.lineTo(timeX, height - 10);
+                    ctx.moveTo(rectX + rectWidth / 2, rectY);
+                    ctx.lineTo(timeX, laneTop - 10);
                     ctx.stroke();
                     ctx.setLineDash([]);
 
-                    // Draw timestamp marker
-                    ctx.fillStyle = 'rgba(102, 126, 234, 0.8)';
+                    ctx.fillStyle = 'rgba(102, 126, 234, 0.9)';
                     ctx.beginPath();
-                    ctx.arc(timeX, height - 10, 4, 0, 2 * Math.PI);
+                    ctx.arc(timeX, laneTop - 10, 4, 0, 2 * Math.PI);
                     ctx.fill();
                 }
 
@@ -1475,11 +1719,11 @@
                         recognition.stop();
                     }
 
-                    // Create blob from recorded chunks
-                    const blob = new Blob(recordedChunks, { type: mimeType });
+                    const extension = mimeType.includes('webm') ? 'webm' : 'ogg';
+                    lastAudioFile = new File(recordedChunks, `recording.${extension}`, { type: mimeType });
 
                     // Convert blob to AudioBuffer
-                    const arrayBuffer = await blob.arrayBuffer();
+                    const arrayBuffer = await lastAudioFile.arrayBuffer();
                     initAudioContext();
 
                     try {
@@ -1488,15 +1732,15 @@
                         // Update UI
                         document.getElementById('duration').textContent = audioBuffer.duration.toFixed(3);
                         document.getElementById('sampleRate').textContent = audioBuffer.sampleRate;
-                        document.getElementById('statusMessage').textContent = '録音完了 - 分析中...';
+                        document.getElementById('statusMessage').textContent = 'Recording completed - Analyzing...';
 
                         // Analyze and draw
                         await analyzeAndDraw();
 
-                        document.getElementById('statusMessage').textContent = '録音と分析が完了しました';
+                        document.getElementById('statusMessage').textContent = 'Recording and analysis completed';
                     } catch (error) {
                         console.error('Error processing recorded audio:', error);
-                        document.getElementById('statusMessage').textContent = 'エラー: 録音の処理に失敗しました';
+                        document.getElementById('statusMessage').textContent = 'Error: Failed to process recording';
                     }
                 };
 
@@ -1506,9 +1750,9 @@
                 recordingStartTime = Date.now();
 
                 // Update UI
-                document.getElementById('recordBtn').textContent = '⏹️ 録音停止';
+                document.getElementById('recordBtn').textContent = '⏹️ Stop Recording';
                 document.getElementById('recordBtn').style.background = '#e53e3e';
-                document.getElementById('statusMessage').textContent = '録音中...';
+                document.getElementById('statusMessage').textContent = 'Recording...';
 
                 // Start real-time speech recognition if available
                 if (recognition) {
@@ -1524,7 +1768,7 @@
 
             } catch (error) {
                 console.error('Error starting recording:', error);
-                alert('マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。');
+                alert('Microphone access was denied. Please check your browser settings.');
             }
         }
 
@@ -1540,16 +1784,16 @@
                 }
 
                 // Update UI
-                document.getElementById('recordBtn').textContent = '🎙️ 録音開始';
+                document.getElementById('recordBtn').textContent = '🎙️ Start Recording';
                 document.getElementById('recordBtn').style.background = '';
-                document.getElementById('statusMessage').textContent = '録音を処理中...';
+                document.getElementById('statusMessage').textContent = 'Processing recording...';
             }
         }
 
         function updateRecordingTime() {
             if (isRecording) {
                 const elapsed = ((Date.now() - recordingStartTime) / 1000).toFixed(1);
-                document.getElementById('statusMessage').textContent = `録音中... ${elapsed}秒`;
+                document.getElementById('statusMessage').textContent = `Recording... ${elapsed}s`;
 
                 // Redraw to show pulsing indicator
                 if (document.getElementById('showWaveform').checked && waveformCanvas) {
