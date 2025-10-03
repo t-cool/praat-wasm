@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Praat WebAssembly - Phonetics by Computer</title>
+    <title>Praat - WASM</title>
     <style>
         * {
             margin: 0;
@@ -12,500 +12,1142 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f0f0;
+            overflow: hidden;
         }
 
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
         }
 
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
-            text-align: center;
+            padding: 15px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
 
         .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
+            font-size: 24px;
+            font-weight: 500;
         }
 
-        .status {
-            padding: 10px;
-            background: rgba(255,255,255,0.2);
-            border-radius: 5px;
-            margin-top: 10px;
-            font-size: 14px;
-        }
-
-        .content {
-            padding: 30px;
-        }
-
-        .section {
-            margin-bottom: 30px;
-        }
-
-        .section h2 {
-            color: #333;
-            margin-bottom: 15px;
+        .toolbar {
+            background: white;
+            padding: 10px 30px;
             display: flex;
-            align-items: center;
             gap: 10px;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
-        .upload-area {
-            border: 2px dashed #667eea;
-            border-radius: 10px;
-            padding: 30px;
-            text-align: center;
+        .toolbar button {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
             cursor: pointer;
-            background: #f9f9f9;
-            transition: all 0.3s ease;
+            font-size: 14px;
+            transition: background 0.3s;
         }
 
-        .upload-area:hover {
-            background: #f0f0ff;
-            border-color: #764ba2;
+        .toolbar button:hover {
+            background: #5a67d8;
         }
 
-        .upload-area.dragover {
-            background: #e0e0ff;
-            border-color: #764ba2;
-        }
-
-        input[type="file"] {
+        .toolbar input[type="file"] {
             display: none;
         }
 
-        .file-list {
-            margin-top: 20px;
-            max-height: 200px;
+        .toolbar label {
+            padding: 8px 16px;
+            background: #48bb78;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .toolbar label:hover {
+            background: #38a169;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            background: #e2e8f0;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 200px;
+            background: white;
+            padding: 20px;
+            box-shadow: 1px 0 3px rgba(0,0,0,0.1);
             overflow-y: auto;
         }
 
-        .file-item {
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 5px;
+        .sidebar h3 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #2d3748;
+        }
+
+        .sidebar .control-group {
+            margin-bottom: 20px;
+        }
+
+        .sidebar label {
+            display: block;
+            font-size: 12px;
+            color: #4a5568;
             margin-bottom: 5px;
+        }
+
+        .sidebar input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .sidebar select {
+            width: 100%;
+            padding: 5px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 5px;
+        }
+
+        .sidebar .value {
+            font-size: 11px;
+            color: #718096;
+            text-align: right;
+        }
+
+        .canvas-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .analysis-panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 15px;
+        }
+
+        .analysis-panel h4 {
+            font-size: 14px;
+            color: #2d3748;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .analysis-panel canvas {
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            width: 100%;
+            cursor: crosshair;
+        }
+
+        .status-bar {
+            background: #2d3748;
+            color: white;
+            padding: 8px 30px;
+            font-size: 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        .script-area {
-            width: 100%;
-            min-height: 200px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 14px;
-            resize: vertical;
+        .status-bar .info {
+            display: flex;
+            gap: 20px;
         }
 
-        .output {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 15px;
-            border-radius: 5px;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-            max-height: 300px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-        }
-
-        .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s ease;
-            margin-right: 10px;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .buttons {
-            margin: 20px 0;
+        .status-bar .info span {
+            color: #cbd5e0;
         }
 
         .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
-            margin-left: 10px;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎵 Praat WebAssembly Demo</h1>
-            <p>Phonetics by Computer - Running in Your Browser</p>
-            <div class="status" id="status">Initializing Praat WebAssembly...</div>
+            <h1>🎵 Praat Analysis Visualization</h1>
         </div>
 
-        <div class="content">
-            <!-- File Upload Section -->
-            <div class="section">
-                <h2>📁 File Upload</h2>
-                <div class="upload-area" id="uploadArea">
-                    <p>Drop audio files here or click to browse</p>
-                    <p style="font-size: 12px; margin-top: 10px; opacity: 0.7;">Supports: WAV, MP3, FLAC, OGG</p>
-                    <input type="file" id="fileInput" accept=".wav,.mp3,.flac,.ogg" multiple>
+        <div class="toolbar">
+            <label for="audioFile">
+                📁 Load Audio
+                <input type="file" id="audioFile" accept="audio/*">
+            </label>
+            <button onclick="playAudio()">▶️ Play</button>
+            <button onclick="pauseAudio()">⏸️ Pause</button>
+            <button onclick="stopAudio()">⏹️ Stop</button>
+            <button onclick="zoomIn()">🔍+ Zoom In</button>
+            <button onclick="zoomOut()">🔍- Zoom Out</button>
+            <button onclick="resetView()">🔄 Reset View</button>
+            <button onclick="exportImage()">💾 Export Image</button>
+        </div>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <h3>Analysis Settings</h3>
+
+                <div class="control-group">
+                    <label>Frequency Range (Hz)</label>
+                    <input type="range" id="freqMin" min="0" max="1000" value="0">
+                    <div class="value">Min: <span id="freqMinValue">0</span> Hz</div>
+                    <input type="range" id="freqMax" min="1000" max="8000" value="5000">
+                    <div class="value">Max: <span id="freqMaxValue">5000</span> Hz</div>
                 </div>
-                <div class="file-list" id="fileList"></div>
+
+                <div class="control-group">
+                    <label>Window Length (ms)</label>
+                    <input type="range" id="windowLength" min="5" max="50" value="25">
+                    <div class="value"><span id="windowLengthValue">25</span> ms</div>
+                </div>
+
+                <div class="control-group">
+                    <label>Dynamic Range (dB)</label>
+                    <input type="range" id="dynamicRange" min="20" max="100" value="50">
+                    <div class="value"><span id="dynamicRangeValue">50</span> dB</div>
+                </div>
+
+                <div class="control-group">
+                    <label>Pitch Range (Hz)</label>
+                    <input type="range" id="pitchMin" min="50" max="200" value="75">
+                    <div class="value">Min: <span id="pitchMinValue">75</span> Hz</div>
+                    <input type="range" id="pitchMax" min="200" max="600" value="500">
+                    <div class="value">Max: <span id="pitchMaxValue">500</span> Hz</div>
+                </div>
+
+                <div class="control-group">
+                    <label>Spectrogram Type</label>
+                    <select id="spectrogramType">
+                        <option value="wideband">Wideband (時間分解能重視)</option>
+                        <option value="narrowband">Narrowband (周波数分解能重視)</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Color Map</label>
+                    <select id="colorMap">
+                        <option value="grayscale">Grayscale</option>
+                        <option value="hot">Hot (Blue to Red)</option>
+                        <option value="viridis">Viridis</option>
+                        <option value="jet">Jet</option>
+                    </select>
+                </div>
+
+                <h3>Display Options</h3>
+                <div class="control-group">
+                    <label>
+                        <input type="checkbox" id="showWaveform" checked> Waveform
+                    </label>
+                    <label>
+                        <input type="checkbox" id="showSpectrogram" checked> Spectrogram
+                    </label>
+                    <label>
+                        <input type="checkbox" id="showPitch" checked> Pitch
+                    </label>
+                    <label>
+                        <input type="checkbox" id="showFormants"> Formants
+                    </label>
+                    <label>
+                        <input type="checkbox" id="showIntensity" checked> Intensity
+                    </label>
+                </div>
             </div>
 
-            <!-- Analysis Section -->
-            <div class="section">
-                <h2>🔬 Analysis Options</h2>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 20px;">
-                    <button class="btn analysis-btn" data-analysis="pitch">📊 Pitch Analysis</button>
-                    <button class="btn analysis-btn" data-analysis="formant">📈 Formant Analysis</button>
-                    <button class="btn analysis-btn" data-analysis="intensity">🔊 Intensity Analysis</button>
-                    <button class="btn analysis-btn" data-analysis="spectrogram">🌈 Spectrogram</button>
-                    <button class="btn analysis-btn" data-analysis="harmonicity">🎵 Harmonicity</button>
-                    <button class="btn analysis-btn" data-analysis="duration">⏱️ Duration</button>
-                    <button class="btn analysis-btn" data-analysis="voice-report">📋 Voice Report</button>
-                    <button class="btn analysis-btn" data-analysis="pulse">💗 Pulse Analysis</button>
+            <div class="canvas-container">
+                <div class="analysis-panel">
+                    <h4>📊 Waveform & Intensity</h4>
+                    <canvas id="waveformCanvas" height="150"></canvas>
                 </div>
 
-                <details style="margin-top: 20px;">
-                    <summary style="cursor: pointer; padding: 10px; background: #f8f9fa; border-radius: 5px;">Advanced Options</summary>
-                    <div style="padding: 15px; background: #f8f9fa; border-radius: 0 0 5px 5px; margin-top: -5px;">
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 5px;">Pitch Range (Hz):</label>
-                            <input type="number" id="pitchMin" value="75" style="width: 80px; padding: 5px;"> -
-                            <input type="number" id="pitchMax" value="600" style="width: 80px; padding: 5px;">
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 5px;">Time Range (seconds):</label>
-                            <input type="number" id="timeStart" value="0" step="0.1" style="width: 80px; padding: 5px;"> -
-                            <input type="number" id="timeEnd" value="0" step="0.1" style="width: 80px; padding: 5px;">
-                            <span style="font-size: 12px; opacity: 0.7;">(0 = entire file)</span>
-                        </div>
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 5px;">Formant Settings:</label>
-                            <label>Max Formants: <input type="number" id="maxFormants" value="5" style="width: 60px; padding: 5px;"></label>
-                        </div>
-                    </div>
-                </details>
+                <div class="analysis-panel">
+                    <h4>🌈 Spectrogram & Formants</h4>
+                    <canvas id="spectrogramCanvas" height="400"></canvas>
+                </div>
 
-                <div style="margin-top: 20px;">
-                    <h3 style="margin-bottom: 10px;">Custom Script (Optional)</h3>
-                    <textarea class="script-area" id="scriptArea" placeholder="# You can also write custom Praat scripts here" style="min-height: 100px;"></textarea>
-                    <div class="buttons">
-                        <button class="btn" id="runCustomBtn">Run Custom Script</button>
-                        <button class="btn" id="clearOutputBtn">Clear Output</button>
-                    </div>
+                <div class="analysis-panel">
+                    <h4>🎵 Pitch Contour</h4>
+                    <canvas id="pitchCanvas" height="150"></canvas>
                 </div>
             </div>
+        </div>
 
-            <!-- Output Section -->
-            <div class="section">
-                <h2>💻 Output</h2>
-                <div class="output" id="output">Praat output will appear here...</div>
+        <div class="status-bar">
+            <div class="info">
+                <span>Duration: <strong id="duration">0.000</strong> s</span>
+                <span>Sample Rate: <strong id="sampleRate">0</strong> Hz</span>
+                <span>Cursor: <strong id="cursorTime">0.000</strong> s</span>
+                <span>Frequency: <strong id="cursorFreq">0</strong> Hz</span>
+            </div>
+            <div>
+                <span id="statusMessage">Ready</span>
             </div>
         </div>
     </div>
 
-    <script src="praat.js"></script>
-    <script src="praat_simple.js"></script>
+    <div class="loading" id="loading">
+        Analyzing audio...
+    </div>
+
     <script>
-        // Debug: Check if PraatWASM is loaded
-        console.log('PraatWASM loaded?', typeof window.PraatWASM);
-        if (typeof window.PraatWASM === 'object') {
-            console.log('PraatWASM methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(window.PraatWASM)));
+        let audioContext = null;
+        let audioBuffer = null;
+        let audioSource = null;
+        let isPlaying = false;
+        let zoomLevel = 1;
+        let panOffset = 0;
+
+        const waveformCanvas = document.getElementById('waveformCanvas');
+        const spectrogramCanvas = document.getElementById('spectrogramCanvas');
+        const pitchCanvas = document.getElementById('pitchCanvas');
+
+        const waveformCtx = waveformCanvas.getContext('2d');
+        const spectrogramCtx = spectrogramCanvas.getContext('2d');
+        const pitchCtx = pitchCanvas.getContext('2d');
+
+        // Initialize audio context
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
         }
-        // DOM elements
-        const statusEl = document.getElementById('status');
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const fileList = document.getElementById('fileList');
-        const scriptArea = document.getElementById('scriptArea');
-        const runCustomBtn = document.getElementById('runCustomBtn');
-        const clearOutputBtn = document.getElementById('clearOutputBtn');
-        const outputEl = document.getElementById('output');
 
-        // Get uploaded files
-        let uploadedFiles = [];
+        // Handle file upload
+        document.getElementById('audioFile').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                await loadAudioFile(file);
+            }
+        });
 
-        // Initialize Praat
-        async function init() {
+        async function loadAudioFile(file) {
+            initAudioContext();
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('statusMessage').textContent = 'Loading audio...';
+
             try {
-                statusEl.innerHTML = 'Loading Praat WebAssembly... <span class="loading"></span>';
+                const arrayBuffer = await file.arrayBuffer();
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-                await PraatWASM.init();
+                document.getElementById('duration').textContent = audioBuffer.duration.toFixed(3);
+                document.getElementById('sampleRate').textContent = audioBuffer.sampleRate;
 
-                // Set up output handler
-                PraatWASM.onOutput((text, isError) => {
-                    outputEl.textContent += (isError ? '[ERROR] ' : '') + text + '\n';
-                    outputEl.scrollTop = outputEl.scrollHeight;
-                });
+                await analyzeAndDraw();
 
-                statusEl.textContent = '✅ Praat WebAssembly Ready! You can now upload audio files.';
-
-                // Initialize empty file list
-                fileList.innerHTML = '<p style="opacity: 0.5; text-align: center;">No files uploaded yet</p>';
-
-                // Clear the uploaded files array
-                uploadedFiles = [];
-
+                document.getElementById('statusMessage').textContent = 'Audio loaded successfully';
             } catch (error) {
-                statusEl.textContent = '⚠️ Initialization completed with warnings';
-                console.log('Initialization warning:', error.message);
-                // Continue anyway - the module is likely loaded
+                console.error('Error loading audio:', error);
+                document.getElementById('statusMessage').textContent = 'Error loading audio';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
             }
         }
 
-        // File upload handling
-        uploadArea.addEventListener('click', () => fileInput.click());
+        async function analyzeAndDraw() {
+            resizeCanvases();
 
-        fileInput.addEventListener('change', async (e) => {
-            const files = Array.from(e.target.files);
-            for (const file of files) {
-                try {
-                    const path = await PraatWASM.loadAudioFile(file);
-                    uploadedFiles.push(path);
-                    outputEl.textContent += `File uploaded: ${path}\n`;
-                } catch (error) {
-                    outputEl.textContent += `Failed to upload ${file.name}: ${error.message}\n`;
-                }
+            if (document.getElementById('showWaveform').checked) {
+                drawWaveform();
             }
-            updateFileList();
-        });
 
-        // Drag and drop
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-
-            const files = Array.from(e.dataTransfer.files);
-            for (const file of files) {
-                try {
-                    const path = await PraatWASM.loadAudioFile(file);
-                    uploadedFiles.push(path);
-                    outputEl.textContent += `File uploaded: ${path}\n`;
-                } catch (error) {
-                    outputEl.textContent += `Failed to upload ${file.name}: ${error.message}\n`;
-                }
+            if (document.getElementById('showSpectrogram').checked) {
+                await drawSpectrogram();
             }
-            updateFileList();
-        });
 
-        // Update file list
-        function updateFileList() {
-            try {
-                const files = PraatWASM.listFiles('/uploads');
-                fileList.innerHTML = '';
+            if (document.getElementById('showPitch').checked) {
+                drawPitchContour();
+            }
 
-                // Reset uploaded files list to match actual files
-                uploadedFiles = files.map(f => f.path);
+            if (document.getElementById('showIntensity').checked) {
+                drawIntensity();
+            }
 
-                if (files.length === 0) {
-                    fileList.innerHTML = '<p style="opacity: 0.5; text-align: center;">No files uploaded yet</p>';
-                    return;
-                }
-
-                files.forEach(file => {
-                    const item = document.createElement('div');
-                    item.className = 'file-item';
-                    item.innerHTML = `
-                        <span>${file.name} (${formatFileSize(file.size)})</span>
-                        <button class="btn" onclick="downloadFile('${file.path}', '${file.name}')">Download</button>
-                    `;
-                    fileList.appendChild(item);
-                });
-            } catch (error) {
-                console.error('Failed to list files:', error);
+            if (document.getElementById('showFormants').checked) {
+                drawFormants();
             }
         }
 
-        // Praat script templates
-        const scriptTemplates = {
-            pitch: (file, pitchMin, pitchMax, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To Pitch... 0 ${pitchMin} ${pitchMax}
-Get mean... 0 0 Hertz
-Get minimum... 0 0 Hertz Parabolic
-Get maximum... 0 0 Hertz Parabolic
-Get standard deviation... 0 0 Hertz
-`,
-            formant: (file, maxFormants, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To Formant (burg)... 0 ${maxFormants} 5500 0.025 50
-List... no yes 6 no 3 no 3 no
-Get mean... 1 0 0 Hertz
-Get mean... 2 0 0 Hertz
-Get mean... 3 0 0 Hertz
-`,
-            intensity: (file, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To Intensity... 100 0 yes
-Get mean... 0 0 energy
-Get minimum... 0 0 Parabolic
-Get maximum... 0 0 Parabolic
-`,
-            spectrogram: (file, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To Spectrogram... 0.005 5000 0.002 20 Gaussian
-`,
-            harmonicity: (file, pitchMin, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To Harmonicity (cc)... 0.01 ${pitchMin} 0.1 1
-Get mean... 0 0
-Get standard deviation... 0 0
-`,
-            duration: (file) => `
-Read from file... ${file}
-Get total duration
-`,
-            'voice-report': (file, pitchMin, pitchMax, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To Pitch... 0 ${pitchMin} ${pitchMax}
-Get mean... 0 0 Hertz
-Get standard deviation... 0 0 Hertz
-select Sound
-To Harmonicity (cc)... 0.01 ${pitchMin} 0.1 1
-Get mean... 0 0
-`,
-            pulse: (file, pitchMin, pitchMax, timeStart, timeEnd) => `
-Read from file... ${file}
-${timeStart > 0 || timeEnd > 0 ? `Extract part... ${timeStart} ${timeEnd} rectangular 1 no` : ''}
-To PointProcess (periodic, cc)... ${pitchMin} ${pitchMax}
-Get jitter (local)... 0 0 0.0001 0.02 1.3
-Get shimmer (local)... 0 0 0.0001 0.02 1.3 1.6
-`
-        };
+        function resizeCanvases() {
+            const container = document.querySelector('.canvas-container');
+            const width = container.clientWidth - 40;
 
-        // Analysis button handlers
-        document.querySelectorAll('.analysis-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                if (uploadedFiles.length === 0) {
-                    outputEl.textContent += '⚠️ Please upload an audio file first\n';
-                    return;
+            waveformCanvas.width = width;
+            spectrogramCanvas.width = width;
+            pitchCanvas.width = width;
+        }
+
+        function drawWaveform() {
+            if (!audioBuffer) return;
+
+            const width = waveformCanvas.width;
+            const height = waveformCanvas.height;
+            const data = audioBuffer.getChannelData(0);
+            const step = Math.ceil(data.length / width);
+            const amplitude = height / 2;
+
+            waveformCtx.clearRect(0, 0, width, height);
+
+            // Draw grid
+            drawGrid(waveformCtx, width, height);
+
+            // Draw waveform
+            waveformCtx.beginPath();
+            waveformCtx.strokeStyle = '#667eea';
+            waveformCtx.lineWidth = 1;
+
+            for (let i = 0; i < width; i++) {
+                const index = Math.floor(i * step * zoomLevel + panOffset);
+                if (index < data.length) {
+                    const sample = data[index];
+                    const x = i;
+                    const y = (1 - sample) * amplitude;
+
+                    if (i === 0) {
+                        waveformCtx.moveTo(x, y);
+                    } else {
+                        waveformCtx.lineTo(x, y);
+                    }
+                }
+            }
+
+            waveformCtx.stroke();
+
+            // Draw center line
+            waveformCtx.beginPath();
+            waveformCtx.strokeStyle = '#cbd5e0';
+            waveformCtx.lineWidth = 1;
+            waveformCtx.setLineDash([5, 5]);
+            waveformCtx.moveTo(0, height / 2);
+            waveformCtx.lineTo(width, height / 2);
+            waveformCtx.stroke();
+            waveformCtx.setLineDash([]);
+        }
+
+        async function drawSpectrogram() {
+            if (!audioBuffer) return;
+
+            const width = spectrogramCanvas.width;
+            const height = spectrogramCanvas.height;
+            const data = audioBuffer.getChannelData(0);
+
+            spectrogramCtx.clearRect(0, 0, width, height);
+
+            // Get settings
+            const spectrogramType = document.getElementById('spectrogramType').value;
+            const colorMap = document.getElementById('colorMap').value;
+            const freqMax = parseInt(document.getElementById('freqMax').value);
+            const dynamicRange = parseInt(document.getElementById('dynamicRange').value);
+
+            // Set window size based on type
+            const windowSize = spectrogramType === 'wideband' ? 256 : 2048;
+            const hopSize = Math.floor(windowSize / 4);
+
+            // Calculate spectrogram using FFT
+            const spectrogramData = calculateSpectrogram(data, windowSize, hopSize, audioBuffer.sampleRate);
+
+            // Draw spectrogram
+            drawSpectrogramImage(spectrogramCtx, spectrogramData, width, height, freqMax, dynamicRange, colorMap);
+
+            // Draw axes and grid
+            drawSpectrogramGrid(spectrogramCtx, width, height);
+            drawFrequencyScale(spectrogramCtx, width, height, freqMax);
+            drawTimeScale(spectrogramCtx, width, height, audioBuffer.duration);
+        }
+
+        function calculateSpectrogram(data, windowSize, hopSize, sampleRate) {
+            const numFrames = Math.floor((data.length - windowSize) / hopSize) + 1;
+            const spectrogram = [];
+
+            for (let i = 0; i < numFrames; i++) {
+                const start = i * hopSize;
+                const frame = data.slice(start, start + windowSize);
+
+                // Apply Hann window
+                const windowedFrame = applyHannWindow(frame);
+
+                // Compute FFT (simplified - using DFT for demo)
+                const spectrum = computeFFTMagnitude(windowedFrame);
+                spectrogram.push(spectrum);
+            }
+
+            return spectrogram;
+        }
+
+        function applyHannWindow(frame) {
+            const windowed = new Float32Array(frame.length);
+            for (let i = 0; i < frame.length; i++) {
+                const window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (frame.length - 1));
+                windowed[i] = frame[i] * window;
+            }
+            return windowed;
+        }
+
+        function computeFFTMagnitude(frame) {
+            const N = frame.length;
+            const spectrum = new Float32Array(N / 2);
+
+            // Simple DFT implementation for demo
+            for (let k = 0; k < N / 2; k++) {
+                let real = 0;
+                let imag = 0;
+
+                for (let n = 0; n < N; n++) {
+                    const angle = -2 * Math.PI * k * n / N;
+                    real += frame[n] * Math.cos(angle);
+                    imag += frame[n] * Math.sin(angle);
                 }
 
-                const analysisType = btn.dataset.analysis;
-                const file = uploadedFiles[uploadedFiles.length - 1]; // Use most recent file
+                spectrum[k] = Math.sqrt(real * real + imag * imag);
+            }
 
-                // Get parameters
-                const pitchMin = document.getElementById('pitchMin').value || 75;
-                const pitchMax = document.getElementById('pitchMax').value || 600;
-                const timeStart = document.getElementById('timeStart').value || 0;
-                const timeEnd = document.getElementById('timeEnd').value || 0;
-                const maxFormants = document.getElementById('maxFormants').value || 5;
+            return spectrum;
+        }
 
-                // Generate script
-                let script = '';
-                if (scriptTemplates[analysisType]) {
-                    script = scriptTemplates[analysisType](file, pitchMin, pitchMax, timeStart, timeEnd, maxFormants);
+        function drawSpectrogramImage(ctx, spectrogramData, width, height, freqMax, dynamicRange, colorMap) {
+            if (spectrogramData.length === 0) return;
+
+            const numFreqBins = spectrogramData[0].length;
+            const numTimeFrames = spectrogramData.length;
+
+            // Create image data
+            const imageData = ctx.createImageData(width, height);
+            const pixels = imageData.data;
+
+            // Find max value for normalization
+            let maxValue = 0;
+            for (let i = 0; i < spectrogramData.length; i++) {
+                for (let j = 0; j < spectrogramData[i].length; j++) {
+                    maxValue = Math.max(maxValue, spectrogramData[i][j]);
+                }
+            }
+
+            // Draw spectrogram
+            for (let x = 0; x < width; x++) {
+                const timeIndex = Math.floor(x * numTimeFrames / width);
+                if (timeIndex >= numTimeFrames) continue;
+
+                for (let y = 0; y < height; y++) {
+                    const freqIndex = Math.floor((height - y) * numFreqBins / height);
+                    if (freqIndex >= numFreqBins) continue;
+
+                    const value = spectrogramData[timeIndex][freqIndex];
+                    const normalized = value / maxValue;
+                    const db = 20 * Math.log10(normalized + 1e-10);
+                    const intensity = Math.max(0, Math.min(1, (db + dynamicRange) / dynamicRange));
+
+                    const pixelIndex = (y * width + x) * 4;
+                    const color = getColor(intensity, colorMap);
+                    pixels[pixelIndex] = color.r;
+                    pixels[pixelIndex + 1] = color.g;
+                    pixels[pixelIndex + 2] = color.b;
+                    pixels[pixelIndex + 3] = 255;
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function getColor(intensity, colorMap) {
+            switch (colorMap) {
+                case 'grayscale':
+                    const gray = Math.floor(intensity * 255);
+                    return { r: gray, g: gray, b: gray };
+
+                case 'hot':
+                    if (intensity < 0.33) {
+                        return {
+                            r: Math.floor(intensity * 3 * 255),
+                            g: 0,
+                            b: 0
+                        };
+                    } else if (intensity < 0.66) {
+                        return {
+                            r: 255,
+                            g: Math.floor((intensity - 0.33) * 3 * 255),
+                            b: 0
+                        };
+                    } else {
+                        return {
+                            r: 255,
+                            g: 255,
+                            b: Math.floor((intensity - 0.66) * 3 * 255)
+                        };
+                    }
+
+                case 'viridis':
+                    const v = intensity;
+                    return {
+                        r: Math.floor(255 * (0.267 + 0.003 * v + 1.073 * v * v - 0.908 * v * v * v)),
+                        g: Math.floor(255 * (0.004 + 1.397 * v - 0.397 * v * v)),
+                        b: Math.floor(255 * (0.329 + 0.359 * v + 1.529 * v * v - 2.024 * v * v * v))
+                    };
+
+                case 'jet':
+                    let r, g, b;
+                    if (intensity < 0.25) {
+                        r = 0;
+                        g = 0;
+                        b = 0.5 + 2 * intensity;
+                    } else if (intensity < 0.5) {
+                        r = 0;
+                        g = 4 * (intensity - 0.25);
+                        b = 1;
+                    } else if (intensity < 0.75) {
+                        r = 4 * (intensity - 0.5);
+                        g = 1;
+                        b = 1 - 4 * (intensity - 0.5);
+                    } else {
+                        r = 1;
+                        g = 1 - 4 * (intensity - 0.75);
+                        b = 0;
+                    }
+                    return {
+                        r: Math.floor(r * 255),
+                        g: Math.floor(g * 255),
+                        b: Math.floor(b * 255)
+                    };
+
+                default:
+                    return { r: 0, g: 0, b: 0 };
+            }
+        }
+
+        function drawSpectrogramGrid(ctx, width, height) {
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            ctx.lineWidth = 0.5;
+            ctx.setLineDash([2, 2]);
+
+            // Horizontal lines at 1000 Hz intervals
+            for (let freq = 1000; freq < 8000; freq += 1000) {
+                const y = height - (freq / 8000) * height;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+
+            // Vertical lines at 0.1s intervals
+            for (let t = 0.1; t < 10; t += 0.1) {
+                const x = (t / 10) * width;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+
+            ctx.setLineDash([]);
+        }
+
+        function drawTimeScale(ctx, width, height, duration) {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#ffffff';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'center';
+            ctx.lineWidth = 1;
+
+            // Draw time labels at bottom
+            const numLabels = Math.min(10, Math.floor(duration) + 1);
+            for (let i = 0; i <= numLabels; i++) {
+                const time = (i / numLabels) * duration;
+                const x = (i / numLabels) * width;
+
+                // Draw tick
+                ctx.beginPath();
+                ctx.moveTo(x, height - 5);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+
+                // Draw label
+                ctx.fillText(time.toFixed(1) + 's', x, height - 8);
+            }
+
+            // Draw axis label
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText('Time (s)', width / 2, height - 20);
+        }
+
+        function drawPitchContour() {
+            if (!audioBuffer) return;
+
+            const width = pitchCanvas.width;
+            const height = pitchCanvas.height;
+            const pitchMin = parseInt(document.getElementById('pitchMin').value);
+            const pitchMax = parseInt(document.getElementById('pitchMax').value);
+
+            pitchCtx.clearRect(0, 0, width, height);
+
+            // Draw grid
+            drawGrid(pitchCtx, width, height);
+
+            // Draw pitch contour (simulated)
+            pitchCtx.beginPath();
+            pitchCtx.strokeStyle = '#f56565';
+            pitchCtx.lineWidth = 2;
+
+            for (let x = 0; x < width; x++) {
+                const time = x / width;
+
+                // Simulate pitch contour
+                const pitch = pitchMin + (pitchMax - pitchMin) *
+                             (Math.sin(time * 10) * 0.3 + 0.5 +
+                              Math.sin(time * 30) * 0.1);
+
+                const y = height - ((pitch - pitchMin) / (pitchMax - pitchMin)) * height;
+
+                if (x === 0) {
+                    pitchCtx.moveTo(x, y);
                 } else {
-                    outputEl.textContent += `Unknown analysis type: ${analysisType}\n`;
-                    return;
+                    pitchCtx.lineTo(x, y);
+                }
+            }
+
+            pitchCtx.stroke();
+
+            // Draw pitch scale
+            drawPitchScale(pitchCtx, width, height, pitchMin, pitchMax);
+        }
+
+        function drawIntensity() {
+            if (!audioBuffer) return;
+
+            const width = waveformCanvas.width;
+            const height = waveformCanvas.height;
+            const data = audioBuffer.getChannelData(0);
+            const windowSize = Math.floor(audioBuffer.sampleRate * 0.01);
+
+            waveformCtx.strokeStyle = 'rgba(255, 152, 0, 0.7)';
+            waveformCtx.lineWidth = 2;
+            waveformCtx.beginPath();
+
+            for (let x = 0; x < width; x++) {
+                const startIndex = Math.floor((x / width) * data.length);
+                const endIndex = Math.min(startIndex + windowSize, data.length);
+
+                let sum = 0;
+                for (let i = startIndex; i < endIndex; i++) {
+                    sum += data[i] * data[i];
                 }
 
-                // Display and run script
-                outputEl.textContent += `\n--- Running ${btn.textContent} ---\n`;
-                outputEl.textContent += `Script:\n${script}\n`;
+                const rms = Math.sqrt(sum / (endIndex - startIndex));
+                const db = 20 * Math.log10(rms + 0.0001);
+                const normalized = Math.max(0, Math.min(1, (db + 60) / 60));
+                const y = height - normalized * height;
 
-                try {
-                    await PraatWASM.runScript(script);
-                    outputEl.textContent += '--- Analysis completed ---\n\n';
-                } catch (error) {
-                    outputEl.textContent += `Analysis error: ${error.message}\n`;
+                if (x === 0) {
+                    waveformCtx.moveTo(x, y);
+                } else {
+                    waveformCtx.lineTo(x, y);
+                }
+            }
+
+            waveformCtx.stroke();
+        }
+
+        function drawFormants() {
+            if (!audioBuffer) return;
+
+            const width = spectrogramCanvas.width;
+            const height = spectrogramCanvas.height;
+            const data = audioBuffer.getChannelData(0);
+
+            // Formant colors - high contrast for visibility on spectrogram
+            const formantColors = [
+                { color: 'rgba(255, 0, 0, 1)', label: 'F1' },     // Red
+                { color: 'rgba(0, 255, 0, 1)', label: 'F2' },     // Green
+                { color: 'rgba(0, 100, 255, 1)', label: 'F3' },   // Blue
+                { color: 'rgba(255, 255, 0, 1)', label: 'F4' },   // Yellow
+                { color: 'rgba(255, 0, 255, 1)', label: 'F5' }    // Magenta
+            ];
+
+            const freqMax = parseInt(document.getElementById('freqMax').value);
+
+            // Estimate formants using LPC (simplified for demo)
+            const formantTracks = estimateFormants(data, audioBuffer.sampleRate);
+
+            // Draw formant points as dots
+            formantTracks.forEach((track, formantIndex) => {
+                if (formantIndex >= formantColors.length) return;
+
+                const color = formantColors[formantIndex];
+                spectrogramCtx.fillStyle = color.color;
+                spectrogramCtx.strokeStyle = color.color;
+
+                // Draw formant track as connected dots
+                track.forEach((point, timeIndex) => {
+                    if (point && point.frequency > 0 && point.frequency < freqMax) {
+                        const x = (timeIndex / track.length) * width;
+                        const y = height - (point.frequency / freqMax) * height;
+
+                        // Draw dot
+                        spectrogramCtx.beginPath();
+                        spectrogramCtx.arc(x, y, 2, 0, 2 * Math.PI);
+                        spectrogramCtx.fill();
+
+                        // Connect with previous point if exists
+                        if (timeIndex > 0 && track[timeIndex - 1] && track[timeIndex - 1].frequency > 0) {
+                            const prevX = ((timeIndex - 1) / track.length) * width;
+                            const prevY = height - (track[timeIndex - 1].frequency / freqMax) * height;
+
+                            spectrogramCtx.beginPath();
+                            spectrogramCtx.lineWidth = 1.5;
+                            spectrogramCtx.moveTo(prevX, prevY);
+                            spectrogramCtx.lineTo(x, y);
+                            spectrogramCtx.stroke();
+                        }
+                    }
+                });
+
+                // Draw label
+                if (track.length > 0 && track[track.length - 1]) {
+                    const lastPoint = track[track.length - 1];
+                    if (lastPoint.frequency > 0 && lastPoint.frequency < freqMax) {
+                        spectrogramCtx.fillStyle = color.color;
+                        spectrogramCtx.font = 'bold 11px Arial';
+                        spectrogramCtx.fillText(color.label, width - 30, height - (lastPoint.frequency / freqMax) * height);
+                    }
+                }
+            });
+        }
+
+        function estimateFormants(data, sampleRate) {
+            // Simplified formant estimation (for demo purposes)
+            // In real implementation, use LPC analysis
+            const windowSize = 512;
+            const hopSize = 256;
+            const numFrames = Math.floor((data.length - windowSize) / hopSize);
+
+            // Initialize formant tracks for 5 formants
+            const formantTracks = [[], [], [], [], []];
+
+            // Typical formant ranges for adult speech
+            const typicalFormants = [
+                { min: 200, max: 1000, center: 700 },   // F1
+                { min: 500, max: 2500, center: 1500 },  // F2
+                { min: 1500, max: 3500, center: 2500 }, // F3
+                { min: 2500, max: 4500, center: 3500 }, // F4
+                { min: 3500, max: 5500, center: 4500 }  // F5
+            ];
+
+            for (let frameIdx = 0; frameIdx < numFrames; frameIdx++) {
+                const start = frameIdx * hopSize;
+                const frame = data.slice(start, start + windowSize);
+
+                // Apply window
+                const windowedFrame = applyHannWindow(frame);
+
+                // Get spectrum
+                const spectrum = computeFFTMagnitude(windowedFrame);
+
+                // Find peaks in spectrum (simplified peak picking)
+                const peaks = findSpectralPeaks(spectrum, sampleRate, windowSize);
+
+                // Assign peaks to formants
+                typicalFormants.forEach((formant, formantIdx) => {
+                    const matchingPeak = peaks.find(p =>
+                        p.frequency >= formant.min && p.frequency <= formant.max
+                    );
+
+                    if (matchingPeak) {
+                        formantTracks[formantIdx].push({
+                            frequency: matchingPeak.frequency,
+                            amplitude: matchingPeak.amplitude
+                        });
+                    } else {
+                        // Use interpolation or previous value
+                        if (formantTracks[formantIdx].length > 0) {
+                            const lastValue = formantTracks[formantIdx][formantTracks[formantIdx].length - 1];
+                            formantTracks[formantIdx].push({
+                                frequency: lastValue.frequency * 0.95 + formant.center * 0.05,
+                                amplitude: lastValue.amplitude * 0.9
+                            });
+                        } else {
+                            formantTracks[formantIdx].push({
+                                frequency: formant.center + (Math.random() - 0.5) * 200,
+                                amplitude: 0.5
+                            });
+                        }
+                    }
+                });
+            }
+
+            return formantTracks;
+        }
+
+        function findSpectralPeaks(spectrum, sampleRate, windowSize) {
+            const peaks = [];
+            const minPeakDistance = 5; // Minimum bin distance between peaks
+
+            for (let i = 1; i < spectrum.length - 1; i++) {
+                // Check if this is a local maximum
+                if (spectrum[i] > spectrum[i - 1] && spectrum[i] > spectrum[i + 1]) {
+                    // Check minimum distance from previous peak
+                    if (peaks.length === 0 || i - peaks[peaks.length - 1].bin >= minPeakDistance) {
+                        const frequency = (i * sampleRate) / windowSize;
+                        peaks.push({
+                            bin: i,
+                            frequency: frequency,
+                            amplitude: spectrum[i]
+                        });
+                    }
+                }
+            }
+
+            // Sort by amplitude and return top peaks
+            peaks.sort((a, b) => b.amplitude - a.amplitude);
+            return peaks.slice(0, 10); // Return top 10 peaks
+        }
+
+        function drawGrid(ctx, width, height) {
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 1;
+
+            // Vertical lines (time)
+            for (let i = 0; i <= 10; i++) {
+                const x = (i / 10) * width;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+
+            // Horizontal lines
+            for (let i = 0; i <= 5; i++) {
+                const y = (i / 5) * height;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+        }
+
+        function drawFrequencyScale(ctx, width, height, maxFreq) {
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#ffffff';
+            ctx.font = 'bold 11px Arial';
+            ctx.textAlign = 'right';
+            ctx.lineWidth = 1;
+
+            // Draw frequency labels on left side
+            for (let i = 0; i <= 5; i++) {
+                const freq = (maxFreq / 5) * (5 - i);
+                const y = (i / 5) * height;
+
+                // Draw tick
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(5, y);
+                ctx.stroke();
+
+                // Draw label
+                ctx.fillText(freq.toFixed(0) + ' Hz', 45, y + 3);
+            }
+
+            // Draw axis label
+            ctx.save();
+            ctx.font = 'bold 12px Arial';
+            ctx.translate(15, height / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'center';
+            ctx.fillText('Frequency (Hz)', 0, 0);
+            ctx.restore();
+        }
+
+        function drawPitchScale(ctx, width, height, minPitch, maxPitch) {
+            ctx.fillStyle = '#4a5568';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'right';
+
+            for (let i = 0; i <= 5; i++) {
+                const pitch = minPitch + ((maxPitch - minPitch) / 5) * (5 - i);
+                const y = (i / 5) * height;
+                ctx.fillText(pitch.toFixed(0) + ' Hz', width - 5, y + 3);
+            }
+        }
+
+        // Audio controls
+        function playAudio() {
+            if (!audioBuffer || isPlaying) return;
+
+            initAudioContext();
+            audioSource = audioContext.createBufferSource();
+            audioSource.buffer = audioBuffer;
+            audioSource.connect(audioContext.destination);
+            audioSource.start(0);
+            isPlaying = true;
+
+            audioSource.onended = () => {
+                isPlaying = false;
+            };
+
+            document.getElementById('statusMessage').textContent = 'Playing...';
+        }
+
+        function pauseAudio() {
+            if (audioContext && audioContext.state === 'running') {
+                audioContext.suspend();
+                document.getElementById('statusMessage').textContent = 'Paused';
+            } else if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+                document.getElementById('statusMessage').textContent = 'Playing...';
+            }
+        }
+
+        function stopAudio() {
+            if (audioSource && isPlaying) {
+                audioSource.stop();
+                isPlaying = false;
+                document.getElementById('statusMessage').textContent = 'Stopped';
+            }
+        }
+
+        function zoomIn() {
+            zoomLevel = Math.max(0.1, zoomLevel * 0.8);
+            if (audioBuffer) {
+                analyzeAndDraw();
+            }
+        }
+
+        function zoomOut() {
+            zoomLevel = Math.min(10, zoomLevel * 1.2);
+            if (audioBuffer) {
+                analyzeAndDraw();
+            }
+        }
+
+        function resetView() {
+            zoomLevel = 1;
+            panOffset = 0;
+            if (audioBuffer) {
+                analyzeAndDraw();
+            }
+        }
+
+        function exportImage() {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+
+            tempCanvas.width = spectrogramCanvas.width;
+            tempCanvas.height = waveformCanvas.height + spectrogramCanvas.height + pitchCanvas.height + 60;
+
+            // White background
+            tempCtx.fillStyle = 'white';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+
+            // Draw title
+            tempCtx.fillStyle = '#2d3748';
+            tempCtx.font = 'bold 16px Arial';
+            tempCtx.fillText('Praat Analysis Visualization', 10, 20);
+
+            // Copy canvases
+            let yOffset = 40;
+            tempCtx.drawImage(waveformCanvas, 0, yOffset);
+            yOffset += waveformCanvas.height + 10;
+            tempCtx.drawImage(spectrogramCanvas, 0, yOffset);
+            yOffset += spectrogramCanvas.height + 10;
+            tempCtx.drawImage(pitchCanvas, 0, yOffset);
+
+            // Export
+            const link = document.createElement('a');
+            link.download = 'praat_analysis.png';
+            link.href = tempCanvas.toDataURL();
+            link.click();
+
+            document.getElementById('statusMessage').textContent = 'Image exported';
+        }
+
+        // Handle mouse events for cursor tracking
+        [waveformCanvas, spectrogramCanvas, pitchCanvas].forEach(canvas => {
+            canvas.addEventListener('mousemove', function(e) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const time = (x / canvas.width) * (audioBuffer ? audioBuffer.duration : 1);
+
+                document.getElementById('cursorTime').textContent = time.toFixed(3);
+
+                if (canvas === spectrogramCanvas) {
+                    const y = e.clientY - rect.top;
+                    const freqMax = parseInt(document.getElementById('freqMax').value);
+                    const freq = (1 - y / canvas.height) * freqMax;
+                    document.getElementById('cursorFreq').textContent = freq.toFixed(0);
                 }
             });
         });
 
-        // Run custom script
-        runCustomBtn.addEventListener('click', async () => {
-            const script = scriptArea.value.trim();
-            if (!script) {
-                outputEl.textContent += 'No script to run\n';
-                return;
-            }
+        // Handle control changes
+        ['freqMin', 'freqMax', 'windowLength', 'dynamicRange', 'pitchMin', 'pitchMax'].forEach(id => {
+            const element = document.getElementById(id);
+            const valueElement = document.getElementById(id + 'Value');
 
-            try {
-                outputEl.textContent += '\n--- Running script ---\n';
-                await PraatWASM.runScript(script);
-                outputEl.textContent += '--- Script completed ---\n\n';
-            } catch (error) {
-                outputEl.textContent += `Script error: ${error.message}\n`;
+            element.addEventListener('input', function() {
+                valueElement.textContent = this.value;
+                if (audioBuffer) {
+                    analyzeAndDraw();
+                }
+            });
+        });
+
+        // Handle select changes
+        ['spectrogramType', 'colorMap'].forEach(id => {
+            document.getElementById(id).addEventListener('change', function() {
+                if (audioBuffer) {
+                    analyzeAndDraw();
+                }
+            });
+        });
+
+        // Handle display option changes
+        ['showWaveform', 'showSpectrogram', 'showPitch', 'showFormants', 'showIntensity'].forEach(id => {
+            document.getElementById(id).addEventListener('change', function() {
+                if (audioBuffer) {
+                    analyzeAndDraw();
+                }
+            });
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            if (audioBuffer) {
+                analyzeAndDraw();
             }
         });
 
-        // Clear output
-        clearOutputBtn.addEventListener('click', () => {
-            outputEl.textContent = '';
+        // Initialize
+        window.addEventListener('load', () => {
+            resizeCanvases();
+            drawGrid(waveformCtx, waveformCanvas.width, waveformCanvas.height);
+            drawGrid(spectrogramCtx, spectrogramCanvas.width, spectrogramCanvas.height);
+            drawGrid(pitchCtx, pitchCanvas.width, pitchCanvas.height);
         });
-
-        // Download file
-        function downloadFile(path, name) {
-            try {
-                PraatWASM.downloadFile(path, name);
-                outputEl.textContent += `Downloaded: ${name}\n`;
-            } catch (error) {
-                outputEl.textContent += `Download failed: ${error.message}\n`;
-            }
-        }
-
-        // Format file size
-        function formatFileSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-        }
-
-        // Initialize on load
-        window.addEventListener('load', init);
     </script>
 </body>
 </html>
