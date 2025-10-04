@@ -318,6 +318,7 @@
                 <div class="analysis-panel">
                     <h4>🌈 Spectrogram & Formants</h4>
                     <canvas id="spectrogramCanvas" height="400"></canvas>
+                    <p id="speechCaptions" style="margin-top: 10px; padding: 10px; background: #f7fafc; border-radius: 4px; min-height: 30px; font-size: 14px; color: #2d3748; display: none;"></p>
                 </div>
 
                 <div class="analysis-panel">
@@ -434,8 +435,8 @@
 
             if (document.getElementById('showSpectrogram').checked) {
                 await drawSpectrogram();
-                // Draw speech labels on spectrogram canvas
-                drawSpeechLabels(spectrogramCtx, spectrogramCanvas.width, spectrogramCanvas.height);
+                // Update speech labels in paragraph element
+                updateSpeechCaptions();
             }
 
             if (document.getElementById('showPitch').checked) {
@@ -1110,8 +1111,15 @@
             const tempCanvas = document.createElement('canvas');
             const tempCtx = tempCanvas.getContext('2d');
 
+            // Calculate height including space for captions if they exist
+            let captionHeight = 0;
+            if (speechLabels.length > 0) {
+                // Estimate height needed for captions with more compact layout
+                captionHeight = Math.min(100, 20 + speechLabels.length * 18);
+            }
+
             tempCanvas.width = spectrogramCanvas.width;
-            tempCanvas.height = waveformCanvas.height + spectrogramCanvas.height + pitchCanvas.height + 60;
+            tempCanvas.height = waveformCanvas.height + spectrogramCanvas.height + pitchCanvas.height + 80 + captionHeight;
 
             // White background
             tempCtx.fillStyle = 'white';
@@ -1122,8 +1130,56 @@
             tempCtx.font = 'bold 16px Arial';
             tempCtx.fillText('Praat Analysis Visualization', 10, 20);
 
-            // Copy canvases
             let yOffset = 40;
+
+            // Add speech captions if they exist (right after title with spacing)
+            if (speechLabels.length > 0) {
+                // Add one line spacing after title
+                yOffset += 20;
+
+                // Sort labels by timestamp
+                const sortedLabels = speechLabels.slice().sort((a, b) => a.timestamp - b.timestamp);
+
+                // Combine all text into one line with timestamps
+                const captionTexts = sortedLabels.map(label => {
+                    const timeStr = label.timestamp ? `[${label.timestamp.toFixed(1)}s]` : '';
+                    return `${timeStr} ${label.text}`;
+                });
+                const fullText = captionTexts.join(' ');
+
+                // Draw caption text
+                tempCtx.fillStyle = '#2d3748';
+                tempCtx.font = '14px Arial';
+
+                // Word wrap the combined text
+                const maxWidth = tempCanvas.width - 20;
+                const words = fullText.split(' ');
+                let line = '';
+                let textY = yOffset;
+
+                for (let n = 0; n < words.length; n++) {
+                    const testLine = line + words[n] + ' ';
+                    const metrics = tempCtx.measureText(testLine);
+                    const testWidth = metrics.width;
+
+                    if (testWidth > maxWidth && n > 0) {
+                        tempCtx.fillText(line.trim(), 10, textY);
+                        line = words[n] + ' ';
+                        textY += 18;
+                    } else {
+                        line = testLine;
+                    }
+                }
+                if (line.trim()) {
+                    tempCtx.fillText(line.trim(), 10, textY);
+                    textY += 18;
+                }
+
+                // Add one line spacing after captions
+                yOffset = textY + 20;
+            }
+
+            // Copy canvases
             tempCtx.drawImage(spectrogramCanvas, 0, yOffset);
             yOffset += spectrogramCanvas.height + 10;
             tempCtx.drawImage(waveformCanvas, 0, yOffset);
@@ -1578,102 +1634,34 @@
 
         function clearLabels() {
             speechLabels = [];
+            updateSpeechCaptions();
             if (audioBuffer) {
                 analyzeAndDraw();
             }
             document.getElementById('statusMessage').textContent = 'Labels cleared';
         }
 
-        function drawSpeechLabels(ctx, width, height) {
-            if (speechLabels.length === 0) return;
+        function updateSpeechCaptions() {
+            const captionsElement = document.getElementById('speechCaptions');
 
-            const waveHeight = 20;
-            const laneHeight = 90;
-            const laneTop = height - laneHeight;
-            const maxRectX = width - 20;
-            const rowSpacing = 28;
+            if (speechLabels.length === 0) {
+                captionsElement.style.display = 'none';
+                captionsElement.textContent = '';
+                return;
+            }
 
-            const laneCanvas = document.createElement('canvas');
-            laneCanvas.width = width;
-            laneCanvas.height = laneHeight;
-            const laneCtx = laneCanvas.getContext('2d');
+            // Sort labels by timestamp
+            const sortedLabels = speechLabels.slice().sort((a, b) => a.timestamp - b.timestamp);
 
-            laneCtx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            laneCtx.fillRect(0, 0, width, laneHeight);
-
-            const gradient = laneCtx.createLinearGradient(0, 0, width, 0);
-            gradient.addColorStop(0, 'rgba(102, 126, 234, 0.25)');
-            gradient.addColorStop(1, 'rgba(58, 169, 255, 0.25)');
-            laneCtx.fillStyle = gradient;
-            laneCtx.beginPath();
-            laneCtx.moveTo(0, laneHeight);
-            laneCtx.quadraticCurveTo(width * 0.25, laneHeight - waveHeight, width * 0.5, laneHeight - waveHeight * 0.6);
-            laneCtx.quadraticCurveTo(width * 0.75, laneHeight - waveHeight * 0.2, width, laneHeight - waveHeight);
-            laneCtx.lineTo(width, laneHeight);
-            laneCtx.closePath();
-            laneCtx.fill();
-
-            ctx.drawImage(laneCanvas, 0, laneTop);
-
-            speechLabels.forEach((label) => {
-                const timeX = audioBuffer ? (label.timestamp / audioBuffer.duration) * width : label.x * width;
-                const labelX = Math.max(40, Math.min(timeX, maxRectX));
-                const labelY = laneTop + 18 + (label.row % 3) * rowSpacing;
-
-                ctx.save();
-                ctx.font = 'bold 14px "Noto Sans JP", sans-serif';
-                const textMetrics = ctx.measureText(label.text);
-                const textWidth = textMetrics.width;
-                const padding = 8;
-
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-                ctx.strokeStyle = 'rgba(102, 126, 234, 0.8)';
-                ctx.lineWidth = 2;
-
-                const rectWidth = textWidth + padding * 2;
-                const rectHeight = 24 + padding * 2;
-                const rectX = Math.max(20, Math.min(labelX - rectWidth / 2, width - rectWidth - 20));
-                const rectY = labelY - rectHeight / 2;
-                const radius = 6;
-
-                ctx.beginPath();
-                ctx.moveTo(rectX + radius, rectY);
-                ctx.lineTo(rectX + rectWidth - radius, rectY);
-                ctx.quadraticCurveTo(rectX + rectWidth, rectY, rectX + rectWidth, rectY + radius);
-                ctx.lineTo(rectX + rectWidth, rectY + rectHeight - radius);
-                ctx.quadraticCurveTo(rectX + rectWidth, rectY + rectHeight, rectX + rectWidth - radius, rectY + rectHeight);
-                ctx.lineTo(rectX + radius, rectY + rectHeight);
-                ctx.quadraticCurveTo(rectX, rectY + rectHeight, rectX, rectY + rectHeight - radius);
-                ctx.lineTo(rectX, rectY + radius);
-                ctx.quadraticCurveTo(rectX, rectY, rectX + radius, rectY);
-                ctx.closePath();
-
-                ctx.fill();
-                ctx.stroke();
-
-                ctx.fillStyle = '#1a202c';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(label.text, rectX + rectWidth / 2, labelY);
-
-                if (audioBuffer && audioBuffer.duration > 0) {
-                    ctx.strokeStyle = 'rgba(102, 126, 234, 0.45)';
-                    ctx.lineWidth = 1;
-                    ctx.setLineDash([4, 4]);
-                    ctx.beginPath();
-                    ctx.moveTo(rectX + rectWidth / 2, rectY);
-                    ctx.lineTo(timeX, laneTop - 10);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-
-                    ctx.fillStyle = 'rgba(102, 126, 234, 0.9)';
-                    ctx.beginPath();
-                    ctx.arc(timeX, laneTop - 10, 4, 0, 2 * Math.PI);
-                    ctx.fill();
-                }
-
-                ctx.restore();
+            // Create caption text with timestamps
+            const captionTexts = sortedLabels.map(label => {
+                const timeStr = label.timestamp ? `[${label.timestamp.toFixed(1)}s]` : '';
+                return `${timeStr} ${label.text}`;
             });
+
+            // Update the paragraph element
+            captionsElement.style.display = 'block';
+            captionsElement.textContent = captionTexts.join(' ');
         }
 
         // Recording Functions
