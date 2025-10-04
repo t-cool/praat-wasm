@@ -837,125 +837,232 @@
 
             // Formant colors - high contrast for visibility on spectrogram
             const formantColors = [
-                { color: 'rgba(255, 0, 0, 1)', label: 'F1' },     // Red
-                { color: 'rgba(0, 255, 0, 1)', label: 'F2' },     // Green
-                { color: 'rgba(0, 100, 255, 1)', label: 'F3' },   // Blue
-                { color: 'rgba(255, 255, 0, 1)', label: 'F4' },   // Yellow
-                { color: 'rgba(255, 0, 255, 1)', label: 'F5' }    // Magenta
+                { color: 'rgba(255, 255, 255, 0.9)', label: 'F1' },     // White
+                { color: 'rgba(255, 255, 0, 0.9)', label: 'F2' },       // Yellow
+                { color: 'rgba(0, 255, 255, 0.9)', label: 'F3' },       // Cyan
+                { color: 'rgba(255, 128, 0, 0.9)', label: 'F4' },       // Orange
+                { color: 'rgba(128, 255, 128, 0.9)', label: 'F5' }      // Light Green
             ];
 
             const freqMax = parseInt(document.getElementById('freqMax').value);
 
-            // Estimate formants using LPC (simplified for demo)
+            // Estimate formants
             const formantTracks = estimateFormants(data, audioBuffer.sampleRate);
 
-            // Draw formant points as dots
+            // Draw each formant track as an ultra-smooth curve
             formantTracks.forEach((track, formantIndex) => {
-                if (formantIndex >= formantColors.length) return;
+                if (formantIndex >= formantColors.length || track.length < 3) return;
 
                 const color = formantColors[formantIndex];
-                spectrogramCtx.fillStyle = color.color;
-                spectrogramCtx.strokeStyle = color.color;
 
-                // Draw formant track as connected dots
-                track.forEach((point, timeIndex) => {
+                // Filter points within frequency range
+                const validPoints = [];
+                for (let i = 0; i < track.length; i++) {
+                    const point = track[i];
                     if (point && point.frequency > 0 && point.frequency < freqMax) {
-                        const x = (timeIndex / track.length) * width;
-                        const y = height - (point.frequency / freqMax) * height;
-
-                        // Draw dot
-                        spectrogramCtx.beginPath();
-                        spectrogramCtx.arc(x, y, 2, 0, 2 * Math.PI);
-                        spectrogramCtx.fill();
-
-                        // Connect with previous point if exists
-                        if (timeIndex > 0 && track[timeIndex - 1] && track[timeIndex - 1].frequency > 0) {
-                            const prevX = ((timeIndex - 1) / track.length) * width;
-                            const prevY = height - (track[timeIndex - 1].frequency / freqMax) * height;
-
-                            spectrogramCtx.beginPath();
-                            spectrogramCtx.lineWidth = 1.5;
-                            spectrogramCtx.moveTo(prevX, prevY);
-                            spectrogramCtx.lineTo(x, y);
-                            spectrogramCtx.stroke();
-                        }
+                        validPoints.push({
+                            x: (i / (track.length - 1)) * width,
+                            y: height - (point.frequency / freqMax) * height
+                        });
                     }
-                });
+                }
 
-                // Draw label
-                if (track.length > 0 && track[track.length - 1]) {
-                    const lastPoint = track[track.length - 1];
-                    if (lastPoint.frequency > 0 && lastPoint.frequency < freqMax) {
-                        spectrogramCtx.fillStyle = color.color;
-                        spectrogramCtx.font = 'bold 11px Arial';
-                        spectrogramCtx.fillText(color.label, width - 30, height - (lastPoint.frequency / freqMax) * height);
-                    }
+                if (validPoints.length < 2) return;
+
+                // Draw using cubic Bezier spline for ultra-smooth curves
+                spectrogramCtx.strokeStyle = color.color;
+                spectrogramCtx.lineWidth = 2.5;
+                spectrogramCtx.lineCap = 'round';
+                spectrogramCtx.lineJoin = 'round';
+                spectrogramCtx.beginPath();
+
+                // Use Catmull-Rom spline for smooth interpolation
+                drawCatmullRomSpline(spectrogramCtx, validPoints);
+                spectrogramCtx.stroke();
+
+                // Draw label at the end
+                if (validPoints.length > 0) {
+                    const lastPoint = validPoints[validPoints.length - 1];
+
+                    // Draw label background for better visibility
+                    spectrogramCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    spectrogramCtx.fillRect(lastPoint.x + 5, lastPoint.y - 8, 20, 16);
+
+                    // Draw label text
+                    spectrogramCtx.fillStyle = color.color;
+                    spectrogramCtx.font = 'bold 11px Arial';
+                    spectrogramCtx.fillText(color.label, lastPoint.x + 7, lastPoint.y + 2);
                 }
             });
         }
 
+        function drawCatmullRomSpline(ctx, points) {
+            if (points.length < 2) return;
+
+            ctx.moveTo(points[0].x, points[0].y);
+
+            // Add control points at the beginning and end
+            const extendedPoints = [
+                points[0], // Duplicate first point
+                ...points,
+                points[points.length - 1] // Duplicate last point
+            ];
+
+            // Draw Catmull-Rom spline
+            for (let i = 1; i < extendedPoints.length - 2; i++) {
+                const p0 = extendedPoints[i - 1];
+                const p1 = extendedPoints[i];
+                const p2 = extendedPoints[i + 1];
+                const p3 = extendedPoints[i + 2];
+
+                // Calculate control points
+                const cp1x = p1.x + (p2.x - p0.x) / 6;
+                const cp1y = p1.y + (p2.y - p0.y) / 6;
+                const cp2x = p2.x - (p3.x - p1.x) / 6;
+                const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+            }
+        }
+
         function estimateFormants(data, sampleRate) {
-            // Simplified formant estimation (for demo purposes)
-            // In real implementation, use LPC analysis
+            // Balanced formant estimation - accurate but performant
             const windowSize = 512;
-            const hopSize = 256;
-            const numFrames = Math.floor((data.length - windowSize) / hopSize);
+            const hopSize = 256; // Balance between resolution and performance
+            const maxFrames = 150; // Limit for performance
+            const totalFrames = Math.floor((data.length - windowSize) / hopSize);
+            const skipFactor = Math.max(1, Math.floor(totalFrames / maxFrames));
+            const numFrames = Math.min(maxFrames, totalFrames);
 
             // Initialize formant tracks for 5 formants
             const formantTracks = [[], [], [], [], []];
 
             // Typical formant ranges for adult speech
             const typicalFormants = [
-                { min: 200, max: 1000, center: 700 },   // F1
-                { min: 500, max: 2500, center: 1500 },  // F2
-                { min: 1500, max: 3500, center: 2500 }, // F3
-                { min: 2500, max: 4500, center: 3500 }, // F4
-                { min: 3500, max: 5500, center: 4500 }  // F5
+                { min: 200, max: 1000, center: 700, bandwidth: 100 },   // F1
+                { min: 800, max: 2500, center: 1500, bandwidth: 150 },  // F2
+                { min: 1500, max: 3500, center: 2500, bandwidth: 200 }, // F3
+                { min: 2500, max: 4500, center: 3500, bandwidth: 300 }, // F4
+                { min: 3500, max: 5500, center: 4500, bandwidth: 400 }  // F5
             ];
 
+            // Process frames with actual FFT
+            const frameData = [];
             for (let frameIdx = 0; frameIdx < numFrames; frameIdx++) {
-                const start = frameIdx * hopSize;
+                const actualFrame = frameIdx * skipFactor;
+                const start = actualFrame * hopSize;
                 const frame = data.slice(start, start + windowSize);
+
+                if (frame.length < windowSize) break;
 
                 // Apply window
                 const windowedFrame = applyHannWindow(frame);
 
-                // Get spectrum
+                // Compute spectrum (simplified FFT)
                 const spectrum = computeFFTMagnitude(windowedFrame);
+                frameData.push(spectrum);
+            }
 
-                // Find peaks in spectrum (simplified peak picking)
-                const peaks = findSpectralPeaks(spectrum, sampleRate, windowSize);
+            // Track formants through frames
+            for (let formantIdx = 0; formantIdx < typicalFormants.length; formantIdx++) {
+                const formant = typicalFormants[formantIdx];
+                const track = [];
+                let prevFreq = formant.center;
 
-                // Assign peaks to formants
-                typicalFormants.forEach((formant, formantIdx) => {
-                    const matchingPeak = peaks.find(p =>
-                        p.frequency >= formant.min && p.frequency <= formant.max
-                    );
+                for (let i = 0; i < frameData.length; i++) {
+                    const spectrum = frameData[i];
 
-                    if (matchingPeak) {
-                        formantTracks[formantIdx].push({
-                            frequency: matchingPeak.frequency,
-                            amplitude: matchingPeak.amplitude
-                        });
-                    } else {
-                        // Use interpolation or previous value
-                        if (formantTracks[formantIdx].length > 0) {
-                            const lastValue = formantTracks[formantIdx][formantTracks[formantIdx].length - 1];
-                            formantTracks[formantIdx].push({
-                                frequency: lastValue.frequency * 0.95 + formant.center * 0.05,
-                                amplitude: lastValue.amplitude * 0.9
-                            });
-                        } else {
-                            formantTracks[formantIdx].push({
-                                frequency: formant.center + (Math.random() - 0.5) * 200,
-                                amplitude: 0.5
-                            });
+                    // Find peak in formant range
+                    let maxAmp = 0;
+                    let peakFreq = prevFreq;
+
+                    const minBin = Math.floor(formant.min * windowSize / sampleRate);
+                    const maxBin = Math.floor(formant.max * windowSize / sampleRate);
+
+                    // Find local maxima in the range
+                    for (let bin = minBin + 1; bin < maxBin - 1 && bin < spectrum.length - 1; bin++) {
+                        // Check if local maximum
+                        if (spectrum[bin] > spectrum[bin - 1] && spectrum[bin] > spectrum[bin + 1]) {
+                            const freq = (bin * sampleRate) / windowSize;
+
+                            // Weight by amplitude and continuity
+                            const amp = spectrum[bin];
+                            const continuityWeight = Math.exp(-Math.abs(freq - prevFreq) / formant.bandwidth);
+                            const weightedAmp = amp * continuityWeight;
+
+                            if (weightedAmp > maxAmp) {
+                                maxAmp = weightedAmp;
+                                peakFreq = freq;
+                            }
                         }
                     }
-                });
+
+                    // Smooth transition (less aggressive smoothing to preserve data)
+                    const smoothedFreq = prevFreq * 0.7 + peakFreq * 0.3;
+                    prevFreq = smoothedFreq;
+
+                    track.push({
+                        frequency: smoothedFreq,
+                        amplitude: maxAmp
+                    });
+                }
+
+                // Apply smoothing to reduce jitter
+                const smoothedTrack = applyMovingAverage(track, 5);
+                formantTracks[formantIdx] = smoothedTrack;
             }
 
             return formantTracks;
+        }
+
+        function applyMovingAverage(track, windowSize) {
+            if (track.length < windowSize) return track;
+
+            const smoothed = [];
+            const halfWindow = Math.floor(windowSize / 2);
+
+            for (let i = 0; i < track.length; i++) {
+                let freqSum = 0;
+                let ampSum = 0;
+                let weights = 0;
+
+                for (let j = -halfWindow; j <= halfWindow; j++) {
+                    const idx = i + j;
+                    if (idx >= 0 && idx < track.length) {
+                        // Gaussian weight for smoother results
+                        const weight = Math.exp(-(j * j) / (halfWindow * halfWindow));
+                        freqSum += track[idx].frequency * weight;
+                        ampSum += track[idx].amplitude * weight;
+                        weights += weight;
+                    }
+                }
+
+                smoothed.push({
+                    frequency: freqSum / weights,
+                    amplitude: ampSum / weights
+                });
+            }
+
+            return smoothed;
+        }
+
+        function smoothSpectrum(spectrum, windowSize) {
+            const smoothed = new Float32Array(spectrum.length);
+            const halfWindow = Math.floor(windowSize / 2);
+
+            for (let i = 0; i < spectrum.length; i++) {
+                let sum = 0;
+                let count = 0;
+
+                for (let j = Math.max(0, i - halfWindow); j <= Math.min(spectrum.length - 1, i + halfWindow); j++) {
+                    sum += spectrum[j];
+                    count++;
+                }
+
+                smoothed[i] = sum / count;
+            }
+
+            return smoothed;
         }
 
         function findSpectralPeaks(spectrum, sampleRate, windowSize) {
