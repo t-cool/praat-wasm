@@ -282,6 +282,8 @@
                 <button onclick="playAudio()">▶️ Play</button>
                 <button onclick="pauseAudio()">⏸️ Pause</button>
                 <button onclick="stopAudio()">⏹️ Stop</button>
+                <button onclick="toggleABLoop()" id="abLoopBtn">🔁 A-B Loop</button>
+                <button onclick="clearABLoop()">❌ Clear A-B</button>
                 <button onclick="resetView()">🔄 Reset</button>
                 <button onclick="exportImage()">💾 Save</button>
                 <button onclick="clearLabels()">🗑️ Clear</button>
@@ -412,6 +414,12 @@
         let isPlaying = false;
         let zoomLevel = 1;
         let panOffset = 0;
+        // A-B区間再生用変数
+        let loopA = null;
+        let loopB = null;
+        let isLooping = false;
+        let playbackPosition = 0;
+        let loopTimerId = null;
 
         // Speech recognition variables
         let recognition = null;
@@ -555,6 +563,9 @@
             waveformCtx.lineTo(width, height / 2);
             waveformCtx.stroke();
             waveformCtx.setLineDash([]);
+
+            // Draw A-B loop region
+            drawABRegion(waveformCtx, width, height);
         }
 
         async function drawSpectrogram() {
@@ -679,6 +690,9 @@
             }
 
             ctx.putImageData(imageData, 0, 0);
+
+            // Draw A-B loop region
+            drawABRegion(spectrogramCtx, width, height);
         }
 
         function getColor(intensity, colorMap) {
@@ -1153,20 +1167,76 @@
 
         // Audio controls
         function playAudio() {
-            if (!audioBuffer || isPlaying) return;
+            if (!audioBuffer) return;
+
+            if (isPlaying) {
+                stopAudio();
+                return;
+            }
 
             initAudioContext();
+            seekToPosition(playbackPosition);
+        }
+
+        function seekToPosition(position) {
+            if (!audioBuffer) return;
+
+            // タイマーをクリア
+            if (loopTimerId) {
+                clearTimeout(loopTimerId);
+                loopTimerId = null;
+            }
+
+            // 現在再生中なら停止
+            if (audioSource && isPlaying) {
+                audioSource.stop();
+                audioSource = null;
+            }
+
+            // 新しい位置から再生開始
+            playbackPosition = Math.max(0, Math.min(position, audioBuffer.duration));
+
             audioSource = audioContext.createBufferSource();
             audioSource.buffer = audioBuffer;
             audioSource.connect(audioContext.destination);
-            audioSource.start(0);
+
             isPlaying = true;
 
+            const offset = playbackPosition;
+            let duration;
+
+            // A-Bループ中はB地点までの長さに制限
+            if (isLooping && loopA !== null && loopB !== null) {
+                // ループ範囲内から再生する場合
+                if (offset <= loopB) {
+                    duration = loopB - offset;
+                    // B地点に達したらA地点に戻るタイマーを設定
+                    const msUntilB = duration * 1000;
+                    loopTimerId = setTimeout(() => {
+                        if (isLooping && isPlaying) {
+                            seekToPosition(loopA);
+                        }
+                    }, msUntilB);
+                } else {
+                    // ループ範囲外から開始する場合はA地点から
+                    seekToPosition(loopA);
+                    return;
+                }
+            } else {
+                duration = audioBuffer.duration - offset;
+            }
+
+            audioSource.start(0, offset, duration);
+
             audioSource.onended = () => {
-                isPlaying = false;
+                // ループ中でない場合の終了処理
+                if (!isLooping) {
+                    isPlaying = false;
+                    playbackPosition = 0;
+                }
             };
 
-            document.getElementById('statusMessage').textContent = 'Playing...';
+            document.getElementById('statusMessage').textContent = `Playing from ${playbackPosition.toFixed(2)}s...`;
         }
 
         function pauseAudio() {
@@ -1180,9 +1250,16 @@
         }
 
         function stopAudio() {
+            // タイマーをクリア
+            if (loopTimerId) {
+                clearTimeout(loopTimerId);
+                loopTimerId = null;
+            }
+
             if (audioSource && isPlaying) {
                 audioSource.stop();
                 isPlaying = false;
+                playbackPosition = 0;
                 document.getElementById('statusMessage').textContent = 'Stopped';
             }
         }
@@ -1295,7 +1372,7 @@
             document.getElementById('statusMessage').textContent = 'Image exported';
         }
 
-        // Handle mouse events for cursor tracking
+        // Handle mouse events for cursor tracking and seeking
         [waveformCanvas, spectrogramCanvas].forEach(canvas => {
             canvas.addEventListener('mousemove', function(e) {
                 const rect = canvas.getBoundingClientRect();
@@ -1310,6 +1387,66 @@
                     const freq = (1 - y / canvas.height) * freqMax;
                     document.getElementById('cursorFreq').textContent = freq.toFixed(0);
                 }
+
+                // ドラッグ中はカーソル位置を更新
+                if (isDragging && audioBuffer) {
+                }
+            });
+
+            canvas.addEventListener('mousedown', function(e) {
+                if (!audioBuffer) return;
+
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const time = (x / canvas.width) * audioBuffer.duration;
+
+                // Shiftキーまたは右クリックでA-B区間設定
+                if (e.shiftKey || e.button === 2) {
+                    e.preventDefault();
+
+                    if (loopA === null) {
+                        loopA = time;
+                        document.getElementById('statusMessage').textContent = `A point set at ${time.toFixed(2)}s`;
+                    } else if (loopB === null) {
+                        loopB = Math.max(loopA + 0.1, time); // Bは必ずAより後
+                        document.getElementById('statusMessage').textContent = `B point set at ${time.toFixed(2)}s (${(loopB - loopA).toFixed(2)}s duration)`;
+                    } else {
+                        // すでにA-Bが設定されている場合は再設定
+                        loopA = time;
+                        loopB = null;
+                        document.getElementById('statusMessage').textContent = `A point reset at ${time.toFixed(2)}s`;
+                    }
+                    analyzeAndDraw();
+                } else if (e.button === 0) { // 左クリックは通常のシーク
+                    isDragging = true;
+                    playbackCursor = Math.max(0, Math.min(time, audioBuffer.duration));
+
+                    // 再生中なら新しい位置から再生、停止中なら位置だけ変更
+                    if (isPlaying) {
+                        seekToPosition(playbackCursor);
+                    } else {
+                        analyzeAndDraw();
+                    }
+
+                    canvas.style.cursor = 'grabbing';
+                }
+                e.preventDefault();
+            });
+
+            // 右クリックメニューを無効化
+            canvas.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            });
+
+            canvas.addEventListener('mouseup', function() {
+                isDragging = false;
+                canvas.style.cursor = 'crosshair';
+            });
+
+            canvas.addEventListener('mouseleave', function() {
+                isDragging = false;
+                canvas.style.cursor = 'crosshair';
             });
         });
 
@@ -1777,6 +1914,86 @@
                 ctx.restore();
             }
         }
+
+
+        // A-B区間表示関数
+        function drawABRegion(ctx, width, height) {
+            if (loopA === null || !audioBuffer) return;
+
+            const aX = (loopA / audioBuffer.duration) * width;
+
+            ctx.save();
+
+            // A地点のマーカー
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 3]);
+            ctx.beginPath();
+            ctx.moveTo(aX, 0);
+            ctx.lineTo(aX, height);
+            ctx.stroke();
+
+            // Aラベル
+            ctx.fillStyle = '#00ff00';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText('A', aX + 3, 20);
+
+            if (loopB !== null) {
+                const bX = (loopB / audioBuffer.duration) * width;
+
+                // B地点のマーカー
+                ctx.strokeStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.moveTo(bX, 0);
+                ctx.lineTo(bX, height);
+                ctx.stroke();
+
+                // Bラベル
+                ctx.fillStyle = '#ff00ff';
+                ctx.fillText('B', bX + 3, 20);
+
+                // A-B区間を半透明で塗りつぶし
+                ctx.fillStyle = isLooping ? 'rgba(255, 255, 0, 0.2)' : 'rgba(100, 100, 255, 0.1)';
+                ctx.fillRect(aX, 0, bX - aX, height);
+            }
+
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        // A-Bループ機能
+        function toggleABLoop() {
+            if (loopA !== null && loopB !== null) {
+                isLooping = !isLooping;
+                document.getElementById('abLoopBtn').style.background = isLooping ? '#4a90e2' : '';
+
+                if (isLooping) {
+                    document.getElementById('statusMessage').textContent = `A-B Loop ON (${loopA.toFixed(2)}s - ${loopB.toFixed(2)}s)`;
+                    if (!isPlaying) {
+                        playbackPosition = loopA;
+                        playAudio();
+                    }
+                } else {
+                    document.getElementById('statusMessage').textContent = 'A-B Loop OFF';
+                }
+
+                analyzeAndDraw();
+            } else {
+                alert('Please set A and B points first using Shift+Click or Right-Click');
+            }
+        }
+
+        function clearABLoop() {
+            loopA = null;
+            loopB = null;
+            isLooping = false;
+            document.getElementById('abLoopBtn').style.background = '';
+            document.getElementById('statusMessage').textContent = 'A-B points cleared';
+            if (audioBuffer) {
+                analyzeAndDraw();
+            }
+        }
+
 
         document.querySelector('.hamburger-menu').addEventListener('click', () => {
             document.querySelector('.toolbar-buttons').classList.toggle('active');
