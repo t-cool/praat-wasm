@@ -264,10 +264,6 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>Praat Web</h1>
-        </div>
-
         <div class="toolbar">
             <div class="hamburger-menu">
                 <div class="line"></div>
@@ -278,17 +274,17 @@
                 ⚙️
             </div>
             <div class="toolbar-buttons">
-                <button onclick="toggleRecording()" id="recordBtn">🎙️ Start Recording</button>
+                <button onclick="toggleRecording()" id="recordBtn">🎙️ Record</button>
                 <label for="audioFile">
-                    📁 Load Audio
+                    📁 Load
                     <input type="file" id="audioFile" accept="audio/*">
                 </label>
                 <button onclick="playAudio()">▶️ Play</button>
                 <button onclick="pauseAudio()">⏸️ Pause</button>
                 <button onclick="stopAudio()">⏹️ Stop</button>
-                <button onclick="resetView()">🔄 Reset View</button>
-                <button onclick="exportImage()">💾 Export Image</button>
-                <button onclick="clearLabels()">🗑️ Clear Labels</button>
+                <button onclick="resetView()">🔄 Reset</button>
+                <button onclick="exportImage()">💾 Save</button>
+                <button onclick="clearLabels()">🗑️ Clear</button>
             </div>
         </div>
 
@@ -317,13 +313,6 @@
                     <div class="value"><span id="dynamicRangeValue">50</span> dB</div>
                 </div>
 
-                <div class="control-group">
-                    <label>Pitch Range (Hz)</label>
-                    <input type="range" id="pitchMin" min="50" max="200" value="80">
-                    <div class="value">Min: <span id="pitchMinValue">80</span> Hz</div>
-                    <input type="range" id="pitchMax" min="200" max="400" value="350">
-                    <div class="value">Max: <span id="pitchMaxValue">350</span> Hz</div>
-                </div>
 
                 <div class="control-group">
                     <label>Spectrogram Type</label>
@@ -375,9 +364,6 @@
                         <input type="checkbox" id="showSpectrogram" checked> Spectrogram
                     </label>
                     <label>
-                        <input type="checkbox" id="showPitch" checked> Pitch
-                    </label>
-                    <label>
                         <input type="checkbox" id="showFormants"> Formants
                     </label>
                     <label>
@@ -399,10 +385,6 @@
                     <canvas id="waveformCanvas" height="150"></canvas>
                 </div>
 
-                <div class="analysis-panel">
-                    <h4>Pitch</h4>
-                    <canvas id="pitchCanvas" height="150"></canvas>
-                </div>
             </div>
         </div>
 
@@ -452,11 +434,9 @@
 
         const waveformCanvas = document.getElementById('waveformCanvas');
         const spectrogramCanvas = document.getElementById('spectrogramCanvas');
-        const pitchCanvas = document.getElementById('pitchCanvas');
 
         const waveformCtx = waveformCanvas.getContext('2d');
         const spectrogramCtx = spectrogramCanvas.getContext('2d');
-        const pitchCtx = pitchCanvas.getContext('2d');
 
         // Initialize audio context
         function initAudioContext() {
@@ -512,9 +492,6 @@
                 updateSpeechCaptions();
             }
 
-            if (document.getElementById('showPitch').checked) {
-                drawPitchContour();
-            }
 
             if (document.getElementById('showIntensity').checked) {
                 drawIntensity();
@@ -531,7 +508,6 @@
 
             waveformCanvas.width = width;
             spectrogramCanvas.width = width;
-            pitchCanvas.width = width;
         }
 
         function drawWaveform() {
@@ -829,46 +805,6 @@
 
         }
 
-        function drawPitchContour() {
-            if (!audioBuffer) return;
-
-            const width = pitchCanvas.width;
-            const height = pitchCanvas.height;
-            const pitchMin = parseInt(document.getElementById('pitchMin').value);
-            const pitchMax = parseInt(document.getElementById('pitchMax').value);
-
-            pitchCtx.clearRect(0, 0, width, height);
-
-            // Draw grid
-            drawGrid(pitchCtx, width, height);
-
-            // Draw pitch contour (simulated)
-            pitchCtx.beginPath();
-            pitchCtx.strokeStyle = '#4a5568';
-            pitchCtx.lineWidth = 2;
-
-            for (let x = 0; x < width; x++) {
-                const time = x / width;
-
-                // Simulate pitch contour
-                const pitch = pitchMin + (pitchMax - pitchMin) *
-                             (Math.sin(time * 10) * 0.3 + 0.5 +
-                              Math.sin(time * 30) * 0.1);
-
-                const y = height - ((pitch - pitchMin) / (pitchMax - pitchMin)) * height;
-
-                if (x === 0) {
-                    pitchCtx.moveTo(x, y);
-                } else {
-                    pitchCtx.lineTo(x, y);
-                }
-            }
-
-            pitchCtx.stroke();
-
-            // Draw pitch scale
-            drawPitchScale(pitchCtx, width, height, pitchMin, pitchMax);
-        }
 
         function drawIntensity() {
             if (!audioBuffer) return;
@@ -1214,17 +1150,6 @@
 
         }
 
-        function drawPitchScale(ctx, width, height, minPitch, maxPitch) {
-            ctx.fillStyle = '#4a5568';
-            ctx.font = '10px Arial';
-            ctx.textAlign = 'right';
-
-            for (let i = 0; i <= 5; i++) {
-                const pitch = minPitch + ((maxPitch - minPitch) / 5) * (5 - i);
-                const y = (i / 5) * height;
-                ctx.fillText(pitch.toFixed(0) + ' Hz', width - 5, y + 3);
-            }
-        }
 
         // Audio controls
         function playAudio() {
@@ -1296,7 +1221,7 @@
             }
 
             tempCanvas.width = spectrogramCanvas.width;
-            tempCanvas.height = waveformCanvas.height + spectrogramCanvas.height + pitchCanvas.height + 80 + captionHeight;
+            tempCanvas.height = waveformCanvas.height + spectrogramCanvas.height + 80 + captionHeight;
 
             // White background
             tempCtx.fillStyle = 'white';
@@ -1360,8 +1285,6 @@
             tempCtx.drawImage(spectrogramCanvas, 0, yOffset);
             yOffset += spectrogramCanvas.height + 10;
             tempCtx.drawImage(waveformCanvas, 0, yOffset);
-            yOffset += waveformCanvas.height + 10;
-            tempCtx.drawImage(pitchCanvas, 0, yOffset);
 
             // Export
             const link = document.createElement('a');
@@ -1373,7 +1296,7 @@
         }
 
         // Handle mouse events for cursor tracking
-        [waveformCanvas, spectrogramCanvas, pitchCanvas].forEach(canvas => {
+        [waveformCanvas, spectrogramCanvas].forEach(canvas => {
             canvas.addEventListener('mousemove', function(e) {
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
@@ -1391,7 +1314,7 @@
         });
 
         // Handle control changes
-        ['freqMin', 'freqMax', 'windowLength', 'dynamicRange', 'pitchMin', 'pitchMax'].forEach(id => {
+        ['freqMin', 'freqMax', 'windowLength', 'dynamicRange'].forEach(id => {
             const element = document.getElementById(id);
             const valueElement = document.getElementById(id + 'Value');
 
@@ -1413,7 +1336,7 @@
         });
 
         // Handle display option changes
-        ['showWaveform', 'showSpectrogram', 'showPitch', 'showFormants', 'showIntensity'].forEach(id => {
+        ['showWaveform', 'showSpectrogram', 'showFormants', 'showIntensity'].forEach(id => {
             document.getElementById(id).addEventListener('change', function() {
                 if (audioBuffer) {
                     analyzeAndDraw();
@@ -1433,7 +1356,6 @@
             resizeCanvases();
             drawGrid(waveformCtx, waveformCanvas.width, waveformCanvas.height);
             drawGrid(spectrogramCtx, spectrogramCanvas.width, spectrogramCanvas.height);
-            drawGrid(pitchCtx, pitchCanvas.width, pitchCanvas.height);
             initializeSpeechRecognition();
         });
 
